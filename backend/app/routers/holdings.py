@@ -44,7 +44,7 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
 
         held = bought - sold
 
-        # Calculate spent/received
+        # Calculate cost basis for all buys and proceeds from all sells
         buy_amount = db.query(func.sum(Transaction.amount)).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
@@ -57,8 +57,21 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
             Transaction.trans_code == 'Sell'
         ).scalar() or Decimal('0')
 
-        total_spent = -buy_amount  # Buy amounts are negative
+        total_spent_all = -buy_amount  # Buy amounts are negative
         total_received = sell_amount
+
+        # For all-time performance: only count realized trades (sold portion)
+        # Cost basis of sold shares = (total buy cost) * (sold / bought)
+        if bought > 0:
+            cost_per_share = total_spent_all / bought
+            cost_of_sold = cost_per_share * sold
+        else:
+            cost_of_sold = Decimal('0')
+
+        realized_pnl = total_received - cost_of_sold
+
+        # Average cost per share (for all buys)
+        avg_cost = total_spent_all / bought if bought > 0 else Decimal('0')
 
         # Calculate dividends
         dividends = db.query(func.sum(Transaction.amount)).filter(
@@ -67,27 +80,25 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
             Transaction.trans_code == 'CDIV'
         ).scalar() or Decimal('0')
 
-        realized_pnl = total_received - total_spent
-
-        avg_cost = total_spent / bought if bought > 0 else Decimal('0')
-
         holdings_list.append({
             "ticker": ticker,
             "shares_held": float(held),
             "avg_cost": float(avg_cost)
         })
 
-        report_items.append({
-            "ticker": ticker,
-            "shares_bought": float(bought),
-            "shares_sold": float(sold),
-            "shares_held": float(held),
-            "total_spent": float(total_spent),
-            "total_received": float(total_received),
-            "dividends": float(dividends),
-            "realized_pnl": float(realized_pnl),
-            "avg_cost": float(avg_cost)
-        })
+        # Only include in all-time performance if shares were actually sold (realized trades)
+        if sold > 0:
+            report_items.append({
+                "ticker": ticker,
+                "shares_bought": float(bought),
+                "shares_sold": float(sold),
+                "shares_held": float(held),
+                "total_spent": float(total_spent_all),
+                "total_received": float(total_received),
+                "dividends": float(dividends),
+                "realized_pnl": float(realized_pnl),
+                "avg_cost": float(avg_cost)
+            })
 
     result = {
         "holdings": holdings_list,
