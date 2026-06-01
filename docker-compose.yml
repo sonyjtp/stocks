@@ -3,6 +3,8 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
+    container_name: stocks-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: stocks_user
       POSTGRES_PASSWORD: stocks_password
@@ -10,7 +12,7 @@ services:
     ports:
       - "5436:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - stocks_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stocks_user"]
       interval: 10s
@@ -19,8 +21,13 @@ services:
 
   redis:
     image: redis:7-alpine
+    container_name: stocks-redis
+    restart: unless-stopped
     ports:
       - "6380:6379"
+    volumes:
+      - stocks_redis_data:/data
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -28,4 +35,7 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
+  stocks_postgres_data:
+    driver: local
+  stocks_redis_data:
+    driver: local
