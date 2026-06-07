@@ -2,6 +2,19 @@
 
 A comprehensive stock trading dashboard for tracking transaction history, analyzing portfolio performance, and managing holdings across multiple brokers. Currently supports Robinhood CSV imports with extensibility for other brokers.
 
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61dafb?logo=react&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-dc382d?logo=redis&logoColor=white)
+![License](https://img.shields.io/badge/License-Personal%20Project-lightgrey)
+
+![Coverage](https://img.shields.io/badge/Coverage-85%25-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-pytest-blue?logo=pytest&logoColor=white)
+![Code Quality](https://img.shields.io/badge/Code%20Quality-Black%2Fisort%2Fflake8-black)
+
+
+
 ## ✨ Features
 
 ### 📊 Pages & Reports

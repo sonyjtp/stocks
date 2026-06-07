@@ -4,15 +4,15 @@ services:
     container_name: stocks-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: stocks_user
-      POSTGRES_PASSWORD: stocks_password
-      POSTGRES_DB: stocks_db
+      POSTGRES_USER: ${POSTGRES_USER:-stocks_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stocks_password}
+      POSTGRES_DB: ${POSTGRES_DB:-stocks_db}
     ports:
       - "5436:5432"
     volumes:
       - stocks_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stocks_user"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stocks_user}"]
       interval: 10s
       timeout: 5s
       retries: 5
