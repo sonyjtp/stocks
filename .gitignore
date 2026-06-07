@@ -38,6 +38,7 @@ wheels/
 .env
 .env.local
 .env.*.local
+# Note: .env.example and ENV_SETUP.md should be committed for reference
 
 # Node
 node_modules/
@@ -61,10 +62,22 @@ postgres_data/
 .DS_Store
 Thumbs.db
 
-# Cache
+# Cache & Testing
 .cache/
 .pytest_cache/
 .coverage
+coverage.xml
+htmlcov/
+*.cover
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Documentation (reference only, not needed in repo)
+# ENV_SETUP.md, TEST_SETUP.md, and TESTING.md contain details consolidated into README.md
+TESTING.md
+TEST_SETUP.md
+ENV_SETUP.md
 
 # Misc
 *.tmp

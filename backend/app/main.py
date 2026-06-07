@@ -1,8 +1,18 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .routers import upload, transactions, holdings, pnl, transfers, prices
 from .logger import setup_logger
+
+# Load environment variables from .env.local (development) or .env (production)
+env_path = Path(__file__).parent.parent.parent / ".env.local"
+if not env_path.exists():
+    env_path = Path(__file__).parent.parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
 logger = setup_logger(__name__)
 
@@ -10,15 +20,23 @@ logger = setup_logger(__name__)
 Base.metadata.create_all(bind=engine)
 logger.info("Database tables initialized")
 
-app = FastAPI(title="Stock Trading Tracker API")
+app = FastAPI(
+    title=os.getenv("API_TITLE", "Stock Trading Tracker API"),
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json"
+)
 
-# CORS middleware for frontend at localhost:5174
+# CORS middleware - get allowed origins from environment
+allowed_origins = [
+    os.getenv("FRONTEND_URL_1", "http://localhost:5174"),
+    os.getenv("FRONTEND_URL_2", "http://localhost:3000"),
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=os.getenv("CORS_CREDENTIALS", "true").lower() == "true",
+    allow_methods=[m.strip() for m in os.getenv("ALLOW_METHODS", "*").split(",")],
+    allow_headers=[h.strip() for h in os.getenv("ALLOW_HEADERS", "*").split(",")],
 )
 
 # Include routers
