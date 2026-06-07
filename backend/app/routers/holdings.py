@@ -38,33 +38,41 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
         buys = db.query(Transaction.quantity, Transaction.amount, Transaction.activity_date).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == 'Buy'
+            Transaction.trans_code == 'Buy',
+            Transaction.quantity.isnot(None)
         ).order_by(Transaction.activity_date).all()
 
         sells = db.query(Transaction.quantity, Transaction.activity_date).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == 'Sell'
+            Transaction.trans_code == 'Sell',
+            Transaction.quantity.isnot(None)
         ).order_by(Transaction.activity_date).all()
 
-        # Calculate totals
-        bought = sum(b.quantity for b in buys)
-        sold = sum(s.quantity for s in sells)
+        # Calculate totals (skip if no valid transactions)
+        if not buys:
+            continue
+
+        bought = sum(b.quantity or 0 for b in buys)
+        sold = sum(s.quantity or 0 for s in sells)
         held = bought - sold
 
         # Build list of buy lots with cost per share
         buy_lots = []
         for quantity, amount, date in buys:
-            cost_per_share = (-amount) / quantity  # amount is negative
-            buy_lots.append({
-                'quantity': quantity,
-                'cost_per_share': cost_per_share,
-                'remaining': quantity
-            })
+            if quantity and quantity > 0:
+                cost_per_share = (-amount) / quantity  # amount is negative
+                buy_lots.append({
+                    'quantity': quantity,
+                    'cost_per_share': cost_per_share,
+                    'remaining': quantity
+                })
 
         # Process sells using FIFO (oldest purchases first)
         total_cost_of_sold = Decimal('0')
         for sell_qty, date in sells:
+            if not sell_qty or sell_qty <= 0:
+                continue
             remaining = sell_qty
             for lot in buy_lots:
                 if remaining <= 0:

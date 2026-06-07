@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
@@ -76,7 +77,7 @@ export default function PnLSummary() {
       </div>
 
       {error && <div className="error">{error.message}</div>}
-      {isLoading && <div className="loading">Loading...</div>}
+      {isLoading && <Spinner />}
 
       {data && (
         <div>

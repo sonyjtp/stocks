@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
@@ -75,7 +76,7 @@ export default function Transfers() {
       </div>
 
       {(sumError || transLoading) && <div className="error">{sumError?.message}</div>}
-      {sumLoading && <div className="loading">Loading...</div>}
+      {sumLoading && <Spinner />}
 
       {summary && (
         <div className="cards">

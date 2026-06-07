@@ -9,3 +9,4 @@ pydantic-settings
 httpx
 python-dotenv
 yfinance
+pdfplumber

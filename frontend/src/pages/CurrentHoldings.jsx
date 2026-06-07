@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
@@ -101,7 +102,7 @@ export default function CurrentHoldings() {
       <h2>Current Holdings</h2>
 
       {error && <div className="error">{error.message}</div>}
-      {isLoading && <div className="loading">Loading...</div>}
+      {isLoading && <Spinner />}
 
       {!isLoading && holdings.length > 0 && (
         <>
@@ -150,8 +151,9 @@ export default function CurrentHoldings() {
               </div>
             )}
           </div>
+          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 260px)', border: '1px solid #ddd', borderRadius: '6px' }}>
           <table>
-            <thead>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr>
                 <SortableHeader field="ticker" label="Ticker" />
                 <SortableHeader field="shares_held" label="Shares Held" />
@@ -184,6 +186,7 @@ export default function CurrentHoldings() {
               })}
             </tbody>
           </table>
+          </div>
         </>
       )}
 

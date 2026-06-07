@@ -2,13 +2,17 @@ from fastapi import APIRouter, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from ..database import get_db
-from ..models import Transaction
+from ..models import Transaction, UploadLog, UploadError
 from ..schemas import UploadResponse
 from ..parsers.robinhood import parse_robinhood_csv
+from ..parsers.robinhood_pdf import parse_robinhood_pdf
 from ..cache import invalidate_cache
 from ..logger import setup_logger
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
+import tempfile
+import os
+from datetime import datetime
 
 logger = setup_logger(__name__)
 router = APIRouter(prefix="/api", tags=["upload"])
@@ -16,13 +20,13 @@ router = APIRouter(prefix="/api", tags=["upload"])
 class TransactionData(BaseModel):
     broker: str
     activity_date: str
-    process_date: str = None
-    settle_date: str = None
-    ticker: str = None
+    process_date: Optional[str] = None
+    settle_date: Optional[str] = None
+    ticker: Optional[str] = None
     description: str
     trans_code: str
-    quantity: float = None
-    price: float = None
+    quantity: Optional[float] = None
+    price: Optional[float] = None
     amount: float
 
 class UploadDuplicatesRequest(BaseModel):
@@ -30,83 +34,113 @@ class UploadDuplicatesRequest(BaseModel):
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Upload and parse Robinhood CSV file."""
+    """Upload and parse Robinhood CSV or PDF file."""
     logger.info(f"Starting upload for file: {file.filename}")
+
+    log = UploadLog(filename=file.filename, status='error', rows_parsed=0,
+                    rows_inserted=0, csv_duplicates=0, db_duplicates=0)
+    db.add(log)
+    db.flush()  # get log.id
 
     try:
         content = await file.read()
-        csv_text = content.decode('utf-8')
-        logger.debug(f"File decoded successfully, size: {len(csv_text)} bytes")
+        file_ext = file.filename.lower().split('.')[-1]
 
-        transactions = parse_robinhood_csv(csv_text)
-        logger.info(f"Parsed {len(transactions)} transactions from CSV")
+        if file_ext == 'pdf':
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            try:
+                transactions = parse_robinhood_pdf(tmp_path)
+            finally:
+                os.unlink(tmp_path)
+        elif file_ext == 'csv':
+            csv_text = content.decode('utf-8')
+            transactions = parse_robinhood_csv(csv_text)
+        else:
+            raise ValueError(f"Unsupported file type: {file_ext}. Please upload a CSV or PDF file.")
 
-        # Track duplicates within the CSV file
+        log.rows_parsed = len(transactions)
+
+        # Deduplicate within file
         seen = set()
         duplicates = []
         unique_transactions = []
-
         for trans in transactions:
-            # Create a hashable key for duplicate detection
             trans_key = (
-                trans['broker'],
-                trans['activity_date'],
-                trans['trans_code'],
-                trans.get('ticker'),
-                trans.get('quantity'),
-                trans.get('amount'),
+                trans['broker'], trans['activity_date'], trans['trans_code'],
+                trans.get('ticker'), trans.get('quantity'), trans.get('amount'),
             )
-
             if trans_key in seen:
-                # This is a duplicate within the CSV
-                logger.debug(f"Duplicate found: {trans.get('ticker')} on {trans['activity_date']}")
                 duplicates.append(trans)
             else:
                 seen.add(trans_key)
                 unique_transactions.append(trans)
 
-        logger.info(f"Found {len(duplicates)} duplicates, {len(unique_transactions)} unique transactions")
-
-        # Now insert unique transactions, checking for existing ones in DB
+        # Insert unique, check DB duplicates
         inserted = 0
         db_duplicates = []
+        failed_rows = []
         for trans in unique_transactions:
-            # Check if transaction already exists in database
-            existing = db.query(Transaction).filter(
-                and_(
-                    Transaction.broker == trans['broker'],
-                    Transaction.activity_date == trans['activity_date'],
-                    Transaction.trans_code == trans['trans_code'],
-                    Transaction.ticker == trans['ticker'],
-                    Transaction.quantity == trans['quantity'],
-                    Transaction.amount == trans['amount'],
-                )
-            ).first()
-
-            if not existing:
-                db_trans = Transaction(**trans)
-                db.add(db_trans)
-                inserted += 1
-            else:
-                db_duplicates.append(trans)
-                logger.debug(f"Skipped existing DB transaction: {trans.get('ticker')} on {trans['activity_date']}")
+            try:
+                existing = db.query(Transaction).filter(
+                    and_(
+                        Transaction.broker == trans['broker'],
+                        Transaction.activity_date == trans['activity_date'],
+                        Transaction.trans_code == trans['trans_code'],
+                        Transaction.ticker == trans['ticker'],
+                        Transaction.quantity == trans['quantity'],
+                        Transaction.amount == trans['amount'],
+                    )
+                ).first()
+                if not existing:
+                    db.add(Transaction(**trans))
+                    inserted += 1
+                else:
+                    db_duplicates.append(trans)
+            except Exception as row_err:
+                failed_rows.append({'trans': trans, 'reason': str(row_err)})
 
         db.commit()
-        logger.info(f"Successfully inserted {inserted} transactions, skipped {len(db_duplicates)} existing in DB")
 
-        invalidate_cache()  # Clear all cache on new upload
-        logger.debug("Cache invalidated")
+        # Save any failed rows to upload_errors
+        for row in failed_rows:
+            t = row['trans']
+            db.add(UploadError(
+                upload_log_id=log.id,
+                activity_date=str(t.get('activity_date', '')),
+                ticker=t.get('ticker'),
+                description=t.get('description'),
+                trans_code=t.get('trans_code'),
+                quantity=str(t.get('quantity', '')),
+                amount=str(t.get('amount', '')),
+                reason=row['reason'],
+            ))
+
+        log.status = 'success'
+        log.rows_inserted = inserted
+        log.csv_duplicates = len(duplicates)
+        log.db_duplicates = len(db_duplicates)
+        db.commit()
+
+        invalidate_cache()
+        logger.info(f"Upload complete: {inserted} inserted, {len(duplicates)} CSV dups, {len(db_duplicates)} DB dups, {len(failed_rows)} failed")
 
         return {
-            "message": f"Successfully uploaded {inserted} transactions" + (f" ({len(duplicates)} CSV duplicates, {len(db_duplicates)} DB duplicates)" if (duplicates or db_duplicates) else ""),
+            "message": f"Successfully uploaded {inserted} transactions" + (
+                f" ({len(duplicates)} CSV duplicates, {len(db_duplicates)} DB duplicates)" if (duplicates or db_duplicates) else ""),
             "rows_inserted": inserted,
             "duplicates": duplicates,
-            "db_duplicates": db_duplicates
+            "db_duplicates": db_duplicates,
         }
 
     except Exception as e:
-        logger.error(f"Error during upload: {str(e)}", exc_info=True)
-        raise
+        log.status = 'error'
+        log.error_message = str(e)
+        db.commit()
+        logger.error(f"Upload error: {e}", exc_info=True)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Error during upload: {str(e)}")
 
 
 @router.post("/upload-duplicates", response_model=UploadResponse)
@@ -117,12 +151,23 @@ async def upload_duplicates(request: UploadDuplicatesRequest, db: Session = Depe
     try:
         inserted = 0
         for trans_data in request.transactions:
+            # Helper function to parse date string
+            def parse_date_str(date_str):
+                if not date_str:
+                    return None
+                if isinstance(date_str, str):
+                    try:
+                        return datetime.strptime(date_str, '%Y-%m-%d').date()
+                    except:
+                        return None
+                return date_str
+
             # Convert TransactionData to dict for Transaction model
             trans_dict = {
                 'broker': trans_data.broker,
-                'activity_date': trans_data.activity_date,
-                'process_date': trans_data.process_date,
-                'settle_date': trans_data.settle_date,
+                'activity_date': parse_date_str(trans_data.activity_date),
+                'process_date': parse_date_str(trans_data.process_date),
+                'settle_date': parse_date_str(trans_data.settle_date),
                 'ticker': trans_data.ticker,
                 'description': trans_data.description,
                 'trans_code': trans_data.trans_code,
@@ -161,4 +206,5 @@ async def upload_duplicates(request: UploadDuplicatesRequest, db: Session = Depe
 
     except Exception as e:
         logger.error(f"Error uploading duplicates: {str(e)}", exc_info=True)
-        raise
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Error uploading duplicates: {str(e)}")

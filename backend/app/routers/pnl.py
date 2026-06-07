@@ -53,30 +53,81 @@ def get_pnl_summary(
     realized_pnl = Decimal('0')
 
     for (ticker,) in tickers:
-        # Calculate shares bought/sold for this ticker
-        bought = db.query(func.sum(Transaction.quantity)).filter(
+        # Get ALL acquisitions: buys, broker transfers (CONV), and stock splits (SPL/SPR)
+        all_acquisitions = db.query(
+            Transaction.quantity, Transaction.amount,
+            Transaction.activity_date, Transaction.trans_code
+        ).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == 'Buy'
-        )
-        if start:
-            bought = bought.filter(Transaction.activity_date >= start)
-        if end:
-            bought = bought.filter(Transaction.activity_date <= end)
-        bought = bought.scalar() or Decimal('0')
+            Transaction.trans_code.in_(['Buy', 'CONV', 'SPL', 'SPR']),
+            Transaction.quantity.isnot(None),
+            Transaction.quantity > 0
+        ).order_by(Transaction.activity_date).all()
 
-        sold = db.query(func.sum(Transaction.quantity)).filter(
+        # Get ALL sells ever (needed to consume lots before the date range)
+        sells_all = db.query(Transaction.quantity, Transaction.amount, Transaction.activity_date).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == 'Sell'
-        )
-        if start:
-            sold = sold.filter(Transaction.activity_date >= start)
-        if end:
-            sold = sold.filter(Transaction.activity_date <= end)
-        sold = sold.scalar() or Decimal('0')
+            Transaction.trans_code == 'Sell',
+            Transaction.quantity.isnot(None)
+        ).order_by(Transaction.activity_date).all()
 
-        # Calculate cost basis
+        if not all_acquisitions and not sells_all:
+            continue
+
+        # Build buy lots with cost per share for FIFO matching
+        buy_lots = []
+        for quantity, amount, act_date, trans_code in all_acquisitions:
+            qty = Decimal(str(quantity))
+            if trans_code == 'Buy':
+                cost_per_share = (-Decimal(str(amount))) / qty if amount else Decimal('0')
+                buy_lots.append({'quantity': qty, 'cost_per_share': cost_per_share, 'remaining': qty})
+            elif trans_code == 'CONV':
+                # Broker transfer (Apex→RHS): original buy predates history, cost unknown
+                buy_lots.append({'quantity': qty, 'cost_per_share': Decimal('0'), 'remaining': qty})
+            elif trans_code in ('SPL', 'SPR'):
+                # Stock split: redistribute total cost across all shares (new + old)
+                total_before = sum(lot['remaining'] for lot in buy_lots)
+                if total_before > 0:
+                    new_total = total_before + qty
+                    ratio = new_total / total_before
+                    for lot in buy_lots:
+                        lot['quantity'] = lot['quantity'] * ratio
+                        lot['remaining'] = lot['remaining'] * ratio
+                        lot['cost_per_share'] = lot['cost_per_share'] / ratio
+                else:
+                    buy_lots.append({'quantity': qty, 'cost_per_share': Decimal('0'), 'remaining': qty})
+
+        # Process sells using FIFO:
+        # - Sells BEFORE date range: consume lots but don't count P&L
+        # - Sells WITHIN date range: consume lots AND count P&L
+        ticker_cost_of_sold = Decimal('0')
+        ticker_sell_amount = Decimal('0')
+
+        for sell_qty, sell_amount_tx, sell_date in sells_all:
+            if not sell_qty or sell_qty <= 0:
+                continue
+
+            # Consume buy lots for this sell using FIFO
+            remaining = sell_qty
+            cost_this_sell = Decimal('0')
+            for lot in buy_lots:
+                if remaining <= 0:
+                    break
+                if lot['remaining'] > 0:
+                    sold_from_lot = min(remaining, lot['remaining'])
+                    cost_this_sell += sold_from_lot * lot['cost_per_share']
+                    lot['remaining'] -= sold_from_lot
+                    remaining -= sold_from_lot
+
+            # Only count P&L for sells within the date range
+            in_range = (not start or sell_date >= start) and (not end or sell_date <= end)
+            if in_range:
+                ticker_cost_of_sold += cost_this_sell
+                ticker_sell_amount += sell_amount_tx or Decimal('0')
+
+        # Total invested = buys within date range
         buy_amount = db.query(func.sum(Transaction.amount)).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
@@ -88,27 +139,11 @@ def get_pnl_summary(
             buy_amount = buy_amount.filter(Transaction.activity_date <= end)
         buy_amount = buy_amount.scalar() or Decimal('0')
 
-        sell_amount = db.query(func.sum(Transaction.amount)).filter(
-            Transaction.broker == broker,
-            Transaction.ticker == ticker,
-            Transaction.trans_code == 'Sell'
-        )
-        if start:
-            sell_amount = sell_amount.filter(Transaction.activity_date >= start)
-        if end:
-            sell_amount = sell_amount.filter(Transaction.activity_date <= end)
-        sell_amount = sell_amount.scalar() or Decimal('0')
-
         total_spent = -buy_amount
-        total_received += sell_amount
         total_invested += total_spent
-
-        # Only count realized P&L for shares that were actually sold
-        if bought > 0 and sold > 0:
-            cost_per_share = total_spent / bought
-            cost_of_sold = cost_per_share * sold
-            cost_of_sold_shares += cost_of_sold
-            realized_pnl += sell_amount - cost_of_sold
+        total_received += ticker_sell_amount
+        cost_of_sold_shares += ticker_cost_of_sold
+        realized_pnl += ticker_sell_amount - ticker_cost_of_sold
 
     # Dividends earned
     dividends = db.query(func.sum(Transaction.amount)).filter(
@@ -137,41 +172,54 @@ def get_pnl_summary(
     cost_of_held_shares = total_invested - cost_of_sold_shares
 
     # Calculate unrealized P&L (requires current prices)
+    # Skip price fetching for historical date ranges (only fetch for current/recent data)
+    from datetime import datetime, timedelta
     from ..routers.holdings import get_consolidated_report
-    consolidated = get_consolidated_report(broker, db)
-    holdings = consolidated.get('holdings', [])
 
-    import yfinance as yf
-    import pandas as pd
     unrealized_pnl = Decimal('0')
     held_shares_current_value = Decimal('0')
-    if holdings:
-        tickers_str = ','.join([h['ticker'] for h in holdings])
-        ticker_list = [t.strip().upper() for t in tickers_str.split(",")]
-        try:
-            data = yf.download(ticker_list, period="1d", progress=False)
 
-            if len(ticker_list) == 1:
-                close_price = data['Close'].iloc[-1] if len(data) > 0 else None
-                prices = {ticker_list[0]: float(close_price) if close_price is not None else None}
-            else:
-                prices = {}
-                for ticker in ticker_list:
-                    try:
-                        close_price = data['Close'][ticker].iloc[-1]
-                        prices[ticker] = float(close_price) if not pd.isna(close_price) else None
-                    except:
-                        prices[ticker] = None
-        except Exception as e:
-            logger.warning(f"Could not fetch prices for unrealized P&L: {e}")
-            prices = {t: None for t in ticker_list}
+    # Only fetch prices if querying recent data (end date is None or within last 7 days)
+    should_fetch_prices = False
+    if not end:
+        should_fetch_prices = True
+    else:
+        days_old = (datetime.now().date() - end).days
+        should_fetch_prices = days_old <= 7
 
-        for holding in holdings:
-            if holding['shares_held'] > 0 and prices.get(holding['ticker']):
-                current_value = holding['shares_held'] * prices[holding['ticker']]
-                cost_basis = holding['shares_held'] * holding['avg_cost']
-                unrealized_pnl += Decimal(str(current_value - cost_basis))
-                held_shares_current_value += Decimal(str(current_value))
+    if should_fetch_prices:
+        consolidated = get_consolidated_report(broker, db)
+        holdings = consolidated.get('holdings', [])
+
+        if holdings:
+            import yfinance as yf
+            import pandas as pd
+            tickers_str = ','.join([h['ticker'] for h in holdings])
+            ticker_list = [t.strip().upper() for t in tickers_str.split(",")]
+            try:
+                data = yf.download(ticker_list, period="1d", progress=False)
+
+                if len(ticker_list) == 1:
+                    close_price = data['Close'].iloc[-1] if len(data) > 0 else None
+                    prices = {ticker_list[0]: float(close_price) if close_price is not None else None}
+                else:
+                    prices = {}
+                    for ticker in ticker_list:
+                        try:
+                            close_price = data['Close'][ticker].iloc[-1]
+                            prices[ticker] = float(close_price) if not pd.isna(close_price) else None
+                        except:
+                            prices[ticker] = None
+            except Exception as e:
+                logger.warning(f"Could not fetch prices for unrealized P&L: {e}")
+                prices = {t: None for t in ticker_list}
+
+            for holding in holdings:
+                if holding['shares_held'] > 0 and prices.get(holding['ticker']):
+                    current_value = holding['shares_held'] * prices[holding['ticker']]
+                    cost_basis = holding['shares_held'] * holding['avg_cost']
+                    unrealized_pnl += Decimal(str(current_value - cost_basis))
+                    held_shares_current_value += Decimal(str(current_value))
 
     # Net P&L = realized_pnl + unrealized_pnl + dividends - fees
     net_pnl = realized_pnl + unrealized_pnl + dividends - fees
@@ -189,6 +237,8 @@ def get_pnl_summary(
         net_pnl=float(net_pnl)
     )
 
-    set_cached(cache_key, result.model_dump(), ttl=300)
-    logger.info(f"P&L Summary - Realized: ${realized_pnl:.2f}, Unrealized: ${unrealized_pnl:.2f}, Net: ${net_pnl:.2f} - CACHED")
+    # Cache longer for historical date ranges (they won't change)
+    cache_ttl = 3600 if (start or end) else 300  # 1 hour for date ranges, 5 min for current
+    set_cached(cache_key, result.model_dump(), ttl=cache_ttl)
+    logger.info(f"P&L Summary - Realized: ${realized_pnl:.2f}, Unrealized: ${unrealized_pnl:.2f}, Net: ${net_pnl:.2f} - CACHED (TTL: {cache_ttl}s)")
     return result

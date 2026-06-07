@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
-from .routers import upload, transactions, holdings, pnl, transfers, prices
+from .routers import upload, transactions, holdings, pnl, transfers, prices, settings
 from .logger import setup_logger
 
 # Load environment variables from .env.local (development) or .env (production)
@@ -46,6 +46,7 @@ app.include_router(holdings.router)
 app.include_router(pnl.router)
 app.include_router(transfers.router)
 app.include_router(prices.router)
+app.include_router(settings.router)
 
 @app.on_event("startup")
 async def startup_event():
