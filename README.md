@@ -1,6 +1,6 @@
 # Stock Trading Tracker
 
-A comprehensive stock trading dashboard for tracking transaction history, analyzing portfolio performance, and managing holdings across multiple brokers. Currently supports Robinhood CSV imports with extensibility for other brokers.
+A comprehensive stock trading dashboard for tracking transaction history, analyzing portfolio performance, and managing holdings across multiple brokers. Currently supports Robinhood CSV and PDF imports with extensibility for other brokers.
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green?logo=fastapi&logoColor=white)
@@ -22,7 +22,10 @@ A comprehensive stock trading dashboard for tracking transaction history, analyz
 1. **Transaction History** — Complete log of all trades and cash movements
    - Filter by date range, ticker, and transaction type (Buy/Sell/Dividend)
    - Sortable columns for date, ticker, description, quantity, price, and amount
-   - View dividends, fees, and transfers
+   - Scrollable table with sticky header for large datasets
+   - **Manually add a transaction** via the "+ Add Transaction" button
+   - **Auto-fill** when adding: if a ticker is active in the filter, the form pre-populates the ticker and description (company name + CUSIP)
+   - **Edit any transaction** via the pencil button on each row — opens a pre-filled modal with all existing values
 
 2. **Current Holdings** — Real-time portfolio view
    - Shares held and average cost basis (FIFO calculation)
@@ -30,6 +33,7 @@ A comprehensive stock trading dashboard for tracking transaction history, analyz
    - Current value and unrealized P&L (colored by gain/loss)
    - Sortable by any column including calculated fields
    - Total unrealized P&L summary
+   - Scrollable table with sticky header
 
 3. **All-Time Performance** — Per-ticker historical statistics
    - Shares bought/sold/held breakdown
@@ -37,6 +41,7 @@ A comprehensive stock trading dashboard for tracking transaction history, analyz
    - Dividends earned per ticker
    - Realized P&L (including unrealized losses on delisted stocks)
    - Average cost basis (FIFO method)
+   - Scrollable table with sticky header
 
 4. **P&L Summary** — Overall portfolio performance breakdown
    - **Sold Shares** section: cost basis, proceeds, realized P&L
@@ -51,16 +56,26 @@ A comprehensive stock trading dashboard for tracking transaction history, analyz
    - Subscription fees (Robinhood Gold) and margin interest
    - Summary: total deposits, withdrawals, interest, and fees
 
+6. **Upload** — Import transaction history
+   - Upload Robinhood CSV or PDF exports
+   - Step-by-step export instructions displayed in-app
+   - Upload history log shown inline below the upload form
+
 ### 🎯 Core Features
 
-- ✅ **CSV Upload** - Import Robinhood transaction exports
+- ✅ **CSV & PDF Upload** - Import Robinhood transaction exports in either format
 - ✅ **Smart Deduplication** - Automatic detection of duplicate transactions on re-upload with option to upload selected duplicates
-- ✅ **FIFO Cost Basis** - Accurate average cost calculation using First-In-First-Out method
+- ✅ **FIFO Cost Basis** - Accurate cost calculation using First-In-First-Out method, including broker transfers (CONV) and stock splits (SPL/SPR)
 - ✅ **Real-time Stock Prices** - Live price updates from Yahoo Finance
-- ✅ **Delisted Stock Handling** - Correctly calculates losses for delisted holdings
+- ✅ **Write-off Support** - Record worthless securities at $0 to recognize cost basis as realized loss
+- ✅ **Manually Add Transactions** - Enter any transaction directly without uploading a file
+- ✅ **Edit Transactions** - Modify any existing transaction; values pre-fill in the edit modal
 - ✅ **Fast Queries** - Redis caching with 5-minute TTL for performance
 - ✅ **Advanced Filtering** - Date ranges, ticker search, transaction type filtering
 - ✅ **Sortable Tables** - Click any column header to sort ascending/descending
+- ✅ **Scrollable Tables** - Sticky headers with vertical scroll for large datasets
+- ✅ **Sticky Navbar** - Navigation bar stays anchored at the top while scrolling
+- ✅ **Dark/Light Theme** - Toggle between dark and light mode
 - ✅ **Color Coding** - Gains in green, losses in red for quick visual scanning
 - ✅ **Comprehensive Logging** - Colored logs with DEBUG/INFO/WARNING/ERROR levels
 
@@ -131,6 +146,8 @@ A comprehensive stock trading dashboard for tracking transaction history, analyz
 
 ### Step 1: Download Your Transaction History from Robinhood
 
+**Option A — CSV (Recommended)**
+
 1. Log in to **[Robinhood](https://robinhood.com)**
 2. Go to **Account** → **Reports & Statements** → **Activity Reports**
 3. Click **Export Activity** (or **Download** if available)
@@ -143,16 +160,24 @@ A comprehensive stock trading dashboard for tracking transaction history, analyz
 Activity Date, Process Date, Settle Date, Symbol, Description, Trans Code, Quantity, Price, Amount
 ```
 
+**Option B — PDF (Monthly Statements)**
+
+1. Log in to **[Robinhood](https://robinhood.com)**
+2. Go to **Account** → **Reports & Statements** → **Monthly Statements**
+3. Download the PDF for the desired month
+4. Upload the PDF directly — the app extracts transactions automatically
+
 ### Step 2: Upload to the Application
 
 1. Open the application in your browser: **http://localhost:5174**
 2. Click the **Upload** tab in the navigation
-3. Click the upload area and select your CSV file
+3. Click the upload area and select your CSV or PDF file
 4. Click **Upload**
 5. If duplicates are detected:
    - Review the duplicates in the modal
    - Select which duplicates to upload (or close to skip)
    - Click **Upload Selected**
+6. Your upload history appears below the upload form for reference
 
 ### Step 3: View Your Portfolio Data
 
@@ -172,6 +197,8 @@ Once uploaded, navigate to each page:
 - **View unrealized P&L** - See gains/losses on your current holdings (in green/red)
 - **Analyze realized P&L** - Understand profit/loss from trades you've completed
 - **Track dividends** - See all dividends earned per stock
+- **Add transactions manually** - Use "+ Add Transaction" on the Transactions page; if a ticker is in the filter, the form auto-fills with the ticker and its description
+- **Edit transactions** - Click the pencil icon on any row to edit with pre-filled values
 
 ### Re-uploading Data
 
@@ -185,7 +212,7 @@ If you download an updated CSV from Robinhood later:
    - **Already in Database** - Transactions already imported (read-only)
 5. Select which new transactions to add and upload
 
-**Note:** The application uses FIFO (First-In-First-Out) cost basis calculation, so your average cost may differ from Robinhood's simple average.
+**Note:** The application uses FIFO (First-In-First-Out) cost basis calculation, so your average cost may differ from Robinhood's simple average. Broker transfers (CONV) use a $0 cost basis, and stock splits (SPL/SPR) adjust existing lots proportionally.
 
 ## Project Structure
 
@@ -199,24 +226,36 @@ stocks/
 │       ├── database.py             # DB connection
 │       ├── cache.py                # Redis helpers
 │       ├── parsers/
-│       │   └── robinhood.py        # CSV parser
+│       │   ├── robinhood.py        # CSV parser
+│       │   └── robinhood_pdf.py    # PDF parser (OpenFIGI CUSIP lookup)
 │       └── routers/
-│           ├── upload.py           # CSV upload endpoint
-│           ├── transactions.py     # Page 1 API
-│           ├── holdings.py         # Page 2 API
-│           ├── pnl.py              # Page 3 API
-│           └── transfers.py        # Page 4 API
+│           ├── upload.py           # CSV/PDF upload endpoint
+│           ├── transactions.py     # Transaction history + add/edit API
+│           ├── holdings.py         # Current holdings API
+│           ├── pnl.py              # P&L report API (FIFO with CONV/SPL/SPR)
+│           └── transfers.py        # Transfers & fees API
+├── backend/tests/
+│   ├── test_robinhood_csv.py       # 36 tests for CSV parser
+│   ├── test_robinhood_pdf.py       # 55 tests for PDF parser
+│   └── test_pnl.py                 # 21 tests for FIFO P&L calculation
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                 # Main app + routing
+│   │   ├── App.jsx                 # Main app + routing + sticky navbar
 │   │   ├── App.css                 # Global styles
 │   │   ├── main.jsx                # React entry
+│   │   ├── context/
+│   │   │   └── ThemeContext.jsx    # Dark/light theme provider
+│   │   ├── components/
+│   │   │   └── Spinner.jsx         # Loading spinner
 │   │   └── pages/
-│   │       ├── TransactionHistory.jsx
-│   │       ├── ConsolidatedReport.jsx
+│   │       ├── TransactionHistory.jsx  # Add/edit transactions
+│   │       ├── CurrentHoldings.jsx
+│   │       ├── AllTimePerformance.jsx
 │   │       ├── PnLSummary.jsx
 │   │       ├── Transfers.jsx
-│   │       └── Upload.jsx
+│   │       ├── Upload.jsx          # Upload + inline history
+│   │       ├── UploadHistory.jsx   # Upload log component
+│   │       └── Settings.jsx
 │   ├── package.json
 │   ├── vite.config.js
 │   └── index.html
@@ -230,20 +269,25 @@ stocks/
 ## API Endpoints
 
 ### Upload
-- `POST /api/upload` — Upload Robinhood CSV export
+- `POST /api/upload` — Upload Robinhood CSV or PDF export
+- `POST /api/upload-duplicates` — Manually insert one or more transactions
 
-### Transactions (Page 1)
-- `GET /api/transactions?broker=robinhood&start=&end=` — Transaction history
+### Transactions
+- `GET /api/transactions?broker=robinhood&start=&end=&trans_code=` — Transaction history
+- `PUT /api/transactions/{id}` — Update an existing transaction
 
-### Holdings & Report (Page 2)
+### Holdings & Report
 - `GET /api/report/consolidated?broker=robinhood` — Per-ticker holdings and P&L
 
-### P&L Summary (Page 3)
+### P&L Summary
 - `GET /api/report/pnl?broker=robinhood&start=&end=` — Portfolio performance
 
-### Transfers (Page 4)
+### Transfers
 - `GET /api/transfers?broker=robinhood&start=&end=` — ACH and fee transactions
 - `GET /api/report/transfers?broker=robinhood&start=&end=` — Transfers summary
+
+### Settings
+- `POST /api/settings/clear-cache` — Invalidate the Redis cache
 
 All endpoints support optional date range filtering via `start` and `end` query parameters (format: `YYYY-MM-DD`).
 
@@ -262,16 +306,17 @@ Supported transaction types:
 - `ACH` — Bank transfers
 - `GOLD` — Robinhood Gold subscription fee
 - `MINT` — Margin interest charge
+- `CONV` — Broker transfer (shares moved in from another broker; cost basis set to $0)
+- `SPL` / `SPR` — Stock split (adjusts existing lot quantities and cost per share proportionally)
 
 ## Future Enhancements
 
 - Support for Stash and Fidelity CSV imports
 - Interactive charts and graphs (portfolio performance over time)
 - Dividend tracking and reinvestment analytics
-- Tax reporting (realized gains/losses)
-- Real-time price quotes and current valuations
+- Tax reporting (realized gains/losses export)
 - Multi-account aggregation
-- User authentication and persistent storage
+- User authentication
 
 ## 👨‍💻 Development
 
@@ -281,7 +326,16 @@ Supported transaction types:
 
 ```bash
 # Run tests with coverage
-pytest --cov=backend/app --cov-report=html
+cd backend
+pytest --cov=app --cov-report=html
+
+# Run without coverage plugin
+pytest --no-cov -v
+
+# Run a specific test file
+pytest tests/test_pnl.py -v
+pytest tests/test_robinhood_csv.py -v
+pytest tests/test_robinhood_pdf.py -v
 
 # Run all linters
 make lint
@@ -289,6 +343,11 @@ make lint
 # Format code
 make format
 ```
+
+**Test Suites:**
+- `test_robinhood_csv.py` — 36 tests covering CSV parsing, amount/decimal/date helpers
+- `test_robinhood_pdf.py` — 55 tests covering PDF extraction, CUSIP lookup (OpenFIGI mocked), ticker detection
+- `test_pnl.py` — 21 tests covering FIFO ordering, stock splits, broker transfers, write-offs, dividends/fees
 
 **Tools:**
 - **pytest** - Unit and integration tests
@@ -314,14 +373,16 @@ make clean           # Clean test artifacts
 ### Backend Architecture
 - **SQLAlchemy ORM** - Database models and queries
 - **FastAPI** - Async web framework with auto-generated docs
-- **Redis** - Caching layer with 5-minute TTL
-- **FIFO Cost Basis** - Accurate share cost tracking
+- **Redis** - Caching layer with 5-minute TTL; invalidated after every mutation
+- **FIFO Cost Basis** - Accurate share cost tracking including CONV ($0 basis) and SPL/SPR (lot ratio adjustment)
+- **OpenFIGI API** - CUSIP-to-ticker resolution for PDF imports (with in-memory caching)
 - **Structured Logging** - Colored output with timestamps
 
 ### Frontend Architecture
 - **React 18** - Modern UI with hooks
-- **React Router** - Client-side navigation
-- **React Query** - Server state management with caching
+- **React Router** - Client-side navigation with sticky navbar
+- **React Query** - Server state management with cache invalidation after mutations
+- **ThemeContext** - App-wide dark/light theme
 - **Responsive Design** - Mobile-friendly layout
 - **Real-time Updates** - Live stock price fetching
 
@@ -337,7 +398,7 @@ CREATE TABLE transactions (
   settle_date DATE,
   ticker VARCHAR,           -- NULL for non-equity transactions
   description TEXT,
-  trans_code VARCHAR,       -- Buy/Sell/CDIV/INT/ACH/GOLD/MINT
+  trans_code VARCHAR,       -- Buy/Sell/CDIV/INT/ACH/GOLD/MINT/CONV/SPL/SPR
   quantity NUMERIC(18,6),   -- NULL for non-equity
   price NUMERIC(18,4),      -- NULL for non-equity
   amount NUMERIC(18,4)      -- Negative for expenses, positive for income
@@ -411,27 +472,38 @@ echo $FRONTEND_URL_1                  # Check CORS configuration
 - Check backend logs: `tail -f /tmp/uvicorn.log`
 - Check upload modal for duplicate transactions (can select which to upload)
 
+**PDF upload produces no transactions:**
+- Ensure the PDF is a Robinhood monthly statement (not a tax document)
+- The parser supports the post-2020 "BOUGHT/SOLD" format and the 2019 "Margin Buy/Sell" format
+- Check backend logs for CUSIP lookup errors (requires internet access for OpenFIGI)
+
+**P&L numbers seem off:**
+- Broker-transferred shares (CONV) are assigned $0 cost basis — their full sale proceeds count as realized gain
+- Stock splits (SPL/SPR) adjust existing lot quantities and cost per share proportionally; the total cost basis is preserved
+- Use a write-off (Sell at $0) for worthless/delisted securities to register the cost basis as a realized loss
+
 **Cache issues - data seems stale:**
 ```bash
-curl -X POST http://localhost:8765/admin/clear-cache    # Clear Redis
-redis-cli KEYS '*'                                        # View cache keys
+curl -X POST http://localhost:8765/api/settings/clear-cache   # Clear Redis
+redis-cli KEYS '*'                                              # View cache keys
 ```
 
 **Tests failing:**
 ```bash
+cd backend
 pytest -v                                  # Verbose output
-pytest -s                                  # Show print statements  
+pytest -s                                  # Show print statements
 pytest -x                                  # Stop at first failure
-pytest --cov=backend/app --cov-report=html # View coverage gaps
+pytest --cov=app --cov-report=html         # View coverage gaps
 # Open htmlcov/index.html in browser
 ```
 
 ## 📈 Performance & Optimization
 
-- **Caching:** All API responses cached for 5 minutes (Redis)
+- **Caching:** All API responses cached for 5 minutes (Redis); invalidated immediately after any add/edit
 - **FIFO Calculation:** Computed on-demand, results cached
-- **Batch Operations:** Price fetches batched to reduce API calls
-- **Large Uploads:** CSV parser efficiently handles thousands of transactions
+- **Batch Operations:** Price fetches batched to reduce API calls; CUSIP lookups batched to OpenFIGI with in-memory caching
+- **Large Uploads:** CSV/PDF parsers efficiently handle thousands of transactions
 - **Database:** Single table design optimized for query flexibility
 
 ## License
