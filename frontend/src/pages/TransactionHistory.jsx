@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react'
+import { useState, useContext, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ThemeContext } from '../context/ThemeContext'
 import Spinner from '../components/Spinner'
@@ -12,6 +12,7 @@ const EMPTY_FORM = {
   ticker: '',
   description: '',
   trans_code: 'Buy',
+  customCode: '',
   quantity: '',
   price: '',
   amount: '',
@@ -28,7 +29,8 @@ export default function TransactionHistory() {
   const [sortBy, setSortBy] = useState('activity_date')
   const [sortOrder, setSortOrder] = useState('desc')
 
-  const [showModal, setShowModal] = useState(false)
+  // modal state: null = closed, 'add' = new, object = editing existing tx
+  const [modal, setModal] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
@@ -54,9 +56,6 @@ export default function TransactionHistory() {
 
   const transactionTypes = ['Buy', 'Sell', 'CDIV', 'ACH', 'SLIP', 'GOLD', 'MINT', 'INT']
 
-  const aggregatedQuantity = transactions.reduce((sum, t) => sum + (parseFloat(t.quantity) || 0), 0)
-  const aggregatedAmount = transactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0)
-
   const formatCurrency = (val) => {
     const num = typeof val === 'string' ? parseFloat(val) : val
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(num)
@@ -64,11 +63,16 @@ export default function TransactionHistory() {
 
   const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('en-US')
 
+  // Format a date for the date input (YYYY-MM-DD)
+  const toInputDate = (dateStr) => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    if (isNaN(d)) return ''
+    return d.toISOString().split('T')[0]
+  }
+
   const handleReset = () => {
-    setStartDate('')
-    setEndDate('')
-    setTicker('')
-    setTransCode('')
+    setStartDate(''); setEndDate(''); setTicker(''); setTransCode('')
   }
 
   const handleSort = (field) => {
@@ -85,9 +89,54 @@ export default function TransactionHistory() {
     return 0
   })
 
+  // Build description hint from existing transactions for this ticker
+  const getDescriptionForTicker = (tickerVal) => {
+    if (!tickerVal) return ''
+    const match = allTransactions.find(t =>
+      t.ticker && t.ticker.toUpperCase() === tickerVal.toUpperCase() &&
+      t.description && t.description.trim()
+    )
+    return match ? match.description : ''
+  }
+
+  const openAdd = () => {
+    setSaveError(null)
+    const prefillTicker = ticker.trim().toUpperCase()
+    const prefillDesc = getDescriptionForTicker(prefillTicker)
+    setForm({
+      ...EMPTY_FORM,
+      ticker: prefillTicker,
+      description: prefillDesc,
+    })
+    setModal('add')
+  }
+
+  const openEdit = (tx) => {
+    setSaveError(null)
+    setForm({
+      activity_date: toInputDate(tx.activity_date),
+      ticker: tx.ticker || '',
+      description: tx.description || '',
+      trans_code: TRANS_CODES.includes(tx.trans_code) ? tx.trans_code : 'Other',
+      customCode: TRANS_CODES.includes(tx.trans_code) ? '' : tx.trans_code,
+      quantity: tx.quantity != null ? String(tx.quantity) : '',
+      price: tx.price != null ? String(tx.price) : '',
+      amount: tx.amount != null ? String(tx.amount) : '',
+    })
+    setModal(tx) // store the full tx object so we have its id
+  }
+
+  // When ticker field in the form changes, auto-fill description if blank
   const handleFormChange = (e) => {
     const { name, value } = e.target
-    setForm(prev => ({ ...prev, [name]: value }))
+    setForm(prev => {
+      const next = { ...prev, [name]: value }
+      if (name === 'ticker') {
+        const desc = getDescriptionForTicker(value.trim().toUpperCase())
+        if (desc && !prev.description) next.description = desc
+      }
+      return next
+    })
   }
 
   const handleSave = async () => {
@@ -101,25 +150,34 @@ export default function TransactionHistory() {
       const payload = {
         broker: 'robinhood',
         activity_date: form.activity_date,
-        process_date: form.activity_date,
-        settle_date: form.activity_date,
         ticker: form.ticker.trim().toUpperCase() || null,
         description: form.description.trim(),
-        trans_code: form.trans_code === 'Other' ? form.customCode || 'Other' : form.trans_code,
+        trans_code: form.trans_code === 'Other' ? (form.customCode.trim() || 'Other') : form.trans_code,
         quantity: form.quantity !== '' ? parseFloat(form.quantity) : null,
         price: form.price !== '' ? parseFloat(form.price) : null,
         amount: parseFloat(form.amount),
       }
-      const res = await fetch(`${API_BASE}/upload-duplicates`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: [payload] }),
-      })
+
+      let res
+      if (modal === 'add') {
+        res = await fetch(`${API_BASE}/upload-duplicates`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactions: [{ ...payload }] }),
+        })
+      } else {
+        res = await fetch(`${API_BASE}/transactions/${modal.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      }
+
       const data = await res.json()
       if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
-      // Clear backend cache so holdings/P&L reflect the new transaction
+
       await fetch(`${API_BASE}/settings/clear-cache`, { method: 'POST' })
-      setShowModal(false)
+      setModal(null)
       setForm(EMPTY_FORM)
       queryClient.invalidateQueries()
     } catch (e) {
@@ -128,24 +186,6 @@ export default function TransactionHistory() {
       setSaving(false)
     }
   }
-
-  const TableHeader = ({ field, label }) => (
-    <th
-      onClick={() => handleSort(field)}
-      style={{
-        cursor: 'pointer',
-        userSelect: 'none',
-        backgroundColor: sortBy === field ? (theme.isDark ? '#1e293b' : '#f0f0f0') : theme.bgSecondary,
-        color: theme.text,
-        padding: '0.6rem 0.75rem',
-        textAlign: 'left',
-        whiteSpace: 'nowrap',
-        borderBottom: `2px solid ${theme.border}`,
-      }}
-    >
-      {label} {sortBy === field && (sortOrder === 'asc' ? '↑' : '↓')}
-    </th>
-  )
 
   const inputStyle = {
     padding: '0.5rem 0.75rem',
@@ -158,21 +198,33 @@ export default function TransactionHistory() {
     boxSizing: 'border-box',
   }
 
+  const TableHeader = ({ field, label }) => (
+    <th
+      onClick={() => handleSort(field)}
+      style={{
+        cursor: 'pointer', userSelect: 'none',
+        backgroundColor: sortBy === field ? (theme.isDark ? '#1e293b' : '#f0f0f0') : theme.bgSecondary,
+        color: theme.text, padding: '0.6rem 0.75rem',
+        textAlign: 'left', whiteSpace: 'nowrap',
+        borderBottom: `2px solid ${theme.border}`,
+      }}
+    >
+      {label} {sortBy === field && (sortOrder === 'asc' ? '↑' : '↓')}
+    </th>
+  )
+
+  const isEditing = modal !== null && modal !== 'add'
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
         <h2 style={{ margin: 0, color: theme.colors.primary }}>Transaction History</h2>
         <button
-          onClick={() => { setShowModal(true); setSaveError(null) }}
+          onClick={openAdd}
           style={{
-            padding: '0.5rem 1.25rem',
-            background: theme.colors.primary,
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            fontSize: '0.9rem',
+            padding: '0.5rem 1.25rem', background: theme.colors.primary,
+            color: 'white', border: 'none', borderRadius: '6px',
+            cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem',
           }}
         >
           + Add Transaction
@@ -183,15 +235,12 @@ export default function TransactionHistory() {
         <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         <input
-          type="text"
-          placeholder="Filter by ticker..."
-          value={ticker}
+          type="text" placeholder="Filter by ticker..." value={ticker}
           onChange={(e) => setTicker(e.target.value)}
           style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9rem', width: '200px' }}
         />
         <select
-          value={transCode}
-          onChange={(e) => setTransCode(e.target.value)}
+          value={transCode} onChange={(e) => setTransCode(e.target.value)}
           style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9rem' }}
         >
           <option value="">All Types</option>
@@ -220,6 +269,7 @@ export default function TransactionHistory() {
                 <TableHeader field="quantity" label="Quantity" />
                 <TableHeader field="price" label="Price" />
                 <TableHeader field="amount" label="Amount" />
+                <th style={{ padding: '0.6rem 0.75rem', background: theme.bgSecondary, borderBottom: `2px solid ${theme.border}`, color: theme.textSecondary, fontSize: '0.8rem' }} />
               </tr>
             </thead>
             <tbody>
@@ -227,12 +277,25 @@ export default function TransactionHistory() {
                 <tr key={t.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text, whiteSpace: 'nowrap' }}>{formatDate(t.activity_date)}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text, fontWeight: 'bold' }}>{t.ticker || '-'}</td>
-                  <td style={{ padding: '0.5rem 0.75rem', color: theme.textSecondary, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description}</td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: theme.textSecondary, maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text }}>{t.trans_code}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text, textAlign: 'right' }}>{t.quantity ? parseFloat(t.quantity).toFixed(4) : '-'}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text, textAlign: 'right' }}>{t.price ? formatCurrency(t.price) : '-'}</td>
                   <td style={{ padding: '0.5rem 0.75rem', fontWeight: 'bold', textAlign: 'right', color: t.amount >= 0 ? theme.colors.success : theme.colors.danger }}>
                     {formatCurrency(t.amount)}
+                  </td>
+                  <td style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>
+                    <button
+                      onClick={() => openEdit(t)}
+                      title="Edit transaction"
+                      style={{
+                        background: 'none', border: `1px solid ${theme.border}`, borderRadius: '4px',
+                        cursor: 'pointer', color: theme.textSecondary, padding: '0.2rem 0.5rem',
+                        fontSize: '0.8rem', lineHeight: 1,
+                      }}
+                    >
+                      ✏️
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -245,20 +308,19 @@ export default function TransactionHistory() {
         <p style={{ textAlign: 'center', color: theme.textSecondary, marginTop: '2rem' }}>No transactions found.</p>
       )}
 
-      {/* Add Transaction Modal */}
-      {showModal && (
+      {/* Add / Edit Modal */}
+      {modal !== null && (
         <div
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setModal(null) }}
         >
           <div style={{
             background: theme.bgSecondary, borderRadius: '10px', padding: '2rem',
             width: '100%', maxWidth: '520px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
           }}>
-            <h3 style={{ margin: '0 0 1.5rem', color: theme.colors.primary }}>Add Transaction</h3>
+            <h3 style={{ margin: '0 0 1.5rem', color: theme.colors.primary }}>
+              {isEditing ? 'Edit Transaction' : 'Add Transaction'}
+            </h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
               <div>
@@ -274,15 +336,20 @@ export default function TransactionHistory() {
               {form.trans_code === 'Other' && (
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>Custom Type Code</label>
-                  <input type="text" name="customCode" value={form.customCode || ''} onChange={handleFormChange} placeholder="e.g. SPR" style={inputStyle} />
+                  <input type="text" name="customCode" value={form.customCode} onChange={handleFormChange} placeholder="e.g. SPR" style={inputStyle} />
                 </div>
               )}
               <div>
                 <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>Ticker</label>
-                <input type="text" name="ticker" value={form.ticker} onChange={handleFormChange} placeholder="e.g. AAPL" style={{ ...inputStyle, textTransform: 'uppercase' }} />
+                <input
+                  type="text" name="ticker" value={form.ticker} onChange={handleFormChange}
+                  placeholder="e.g. AAPL" style={{ ...inputStyle, textTransform: 'uppercase' }}
+                />
               </div>
               <div>
-                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>Amount * <span style={{ fontWeight: 'normal' }}>(negative = cash out)</span></label>
+                <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>
+                  Amount * <span style={{ fontWeight: 'normal', fontSize: '0.78rem' }}>(negative = cash out)</span>
+                </label>
                 <input type="number" name="amount" value={form.amount} onChange={handleFormChange} placeholder="-1500.00" step="0.01" style={inputStyle} />
               </div>
               <div>
@@ -295,7 +362,7 @@ export default function TransactionHistory() {
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>Description *</label>
-                <input type="text" name="description" value={form.description} onChange={handleFormChange} placeholder="e.g. Apple Inc" style={inputStyle} />
+                <input type="text" name="description" value={form.description} onChange={handleFormChange} placeholder="e.g. Apple Inc CUSIP: 037833100" style={inputStyle} />
               </div>
             </div>
 
@@ -307,17 +374,16 @@ export default function TransactionHistory() {
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setShowModal(false)}
+                onClick={() => setModal(null)}
                 style={{ padding: '0.6rem 1.25rem', border: `1px solid ${theme.border}`, borderRadius: '6px', background: 'transparent', color: theme.text, cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
-                onClick={handleSave}
-                disabled={saving}
+                onClick={handleSave} disabled={saving}
                 style={{ padding: '0.6rem 1.5rem', background: theme.colors.primary, color: 'white', border: 'none', borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
               >
-                {saving ? 'Saving...' : 'Save Transaction'}
+                {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Transaction'}
               </button>
             </div>
           </div>

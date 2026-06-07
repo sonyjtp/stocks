@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import date
-from typing import List
+from decimal import Decimal
+from typing import List, Optional
+from pydantic import BaseModel
 from ..database import get_db
 from ..models import Transaction
 from ..schemas import TransactionResponse
-from ..cache import get_cached, set_cached
+from ..cache import get_cached, set_cached, invalidate_cache
 
 router = APIRouter(prefix="/api", tags=["transactions"])
 
@@ -61,3 +63,48 @@ def get_transactions(
     ])
 
     return results
+
+
+class TransactionUpdate(BaseModel):
+    activity_date: str
+    ticker: Optional[str] = None
+    description: str
+    trans_code: str
+    quantity: Optional[float] = None
+    price: Optional[float] = None
+    amount: float
+
+
+@router.put("/transactions/{transaction_id}", response_model=TransactionResponse)
+def update_transaction(
+    transaction_id: int,
+    body: TransactionUpdate,
+    db: Session = Depends(get_db)
+):
+    tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    from datetime import datetime
+    def parse_d(s):
+        if not s:
+            return None
+        try:
+            return datetime.strptime(s, '%Y-%m-%d').date()
+        except Exception:
+            return None
+
+    tx.activity_date = parse_d(body.activity_date) or tx.activity_date
+    tx.process_date = parse_d(body.activity_date) or tx.process_date
+    tx.settle_date = parse_d(body.activity_date) or tx.settle_date
+    tx.ticker = body.ticker.strip().upper() if body.ticker else None
+    tx.description = body.description
+    tx.trans_code = body.trans_code
+    tx.quantity = Decimal(str(body.quantity)) if body.quantity is not None else None
+    tx.price = Decimal(str(body.price)) if body.price is not None else None
+    tx.amount = Decimal(str(body.amount))
+
+    db.commit()
+    db.refresh(tx)
+    invalidate_cache()
+    return tx
