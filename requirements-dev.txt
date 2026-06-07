@@ -13,7 +13,7 @@ mypy==1.7.1
 
 # Code Quality
 bandit==1.7.5
-safety==2.3.5
+safety==3.0.1
 
 # Pre-commit
 pre-commit==3.5.0
