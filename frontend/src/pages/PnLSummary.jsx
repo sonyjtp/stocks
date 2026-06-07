@@ -34,11 +34,33 @@ export default function PnLSummary() {
     return value >= 0 ? 'card positive' : 'card negative'
   }
 
+  const StatRow = ({ label, value, color = null }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', alignItems: 'center' }}>
+      <span style={{ fontSize: '0.95rem' }}>{label}</span>
+      <span style={{ fontWeight: 'bold', color: color || (value >= 0 ? '#27ae60' : '#e74c3c') }}>
+        {formatCurrency(value)}
+      </span>
+    </div>
+  )
+
+  const PanelSection = ({ title, children }) => (
+    <div style={{
+      backgroundColor: '#f9f9f9',
+      border: '1px solid #e0e0e0',
+      borderRadius: '6px',
+      padding: '1.25rem',
+      marginBottom: '1.5rem'
+    }}>
+      <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>{title}</h3>
+      {children}
+    </div>
+  )
+
   return (
     <div>
       <h2>P&L Summary</h2>
 
-      <div className="date-range">
+      <div className="date-range" style={{ marginBottom: '1.5rem' }}>
         <input
           type="date"
           value={startDate}
@@ -57,36 +79,45 @@ export default function PnLSummary() {
       {isLoading && <div className="loading">Loading...</div>}
 
       {data && (
-        <div className="cards">
-          <div className="card">
-            <h3>Total Invested</h3>
-            <div className="value">{formatCurrency(data.total_invested)}</div>
-          </div>
+        <div>
+          {/* Sold Shares Section */}
+          <PanelSection title="Sold Shares (Closed Positions)">
+            <StatRow label="Cost of Sold Shares" value={data.cost_of_sold_shares} color="#666" />
+            <StatRow label="Proceeds from Sales" value={data.total_received} color="#666" />
+            <div style={{ borderTop: '1px solid #ddd', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+              <StatRow label="Realized P&L" value={data.realized_pnl} />
+            </div>
+          </PanelSection>
 
-          <div className="card">
-            <h3>Total Received</h3>
-            <div className="value">{formatCurrency(data.total_received)}</div>
-          </div>
+          {/* Held Shares Section */}
+          <PanelSection title="Held Shares (Open Positions)">
+            <StatRow label="Cost Basis of Held Shares" value={data.cost_of_held_shares} color="#666" />
+            <StatRow label="Current Value of Held Shares" value={data.held_shares_current_value} color="#666" />
+            <div style={{ borderTop: '1px solid #ddd', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+              <StatRow label="Unrealized P&L" value={data.unrealized_pnl} />
+            </div>
+          </PanelSection>
 
-          <div className={getCardClass(data.realized_pnl)}>
-            <h3>Realized P&L</h3>
-            <div className="value">{formatCurrency(data.realized_pnl)}</div>
-          </div>
+          {/* Summary Section */}
+          <PanelSection title="P&L Summary">
+            <StatRow label="Realized P&L" value={data.realized_pnl} />
+            <StatRow label="Unrealized P&L" value={data.unrealized_pnl} />
+            <StatRow label="Dividends" value={data.dividends} />
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <span style={{ fontSize: '0.95rem' }}>Fees</span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontWeight: 'bold', color: '#e74c3c' }}>-{formatCurrency(data.fees)}</span>
+            </div>
+            <div style={{ borderTop: '2px solid #ddd', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+              <StatRow label="Net P&L" value={data.net_pnl} />
+            </div>
+          </PanelSection>
 
-          <div className={getCardClass(data.dividends)}>
-            <h3>Dividends</h3>
-            <div className="value">{formatCurrency(data.dividends)}</div>
-          </div>
-
-          <div className="card negative">
-            <h3>Fees (Gold + Margin)</h3>
-            <div className="value">{formatCurrency(data.fees)}</div>
-          </div>
-
-          <div className={getCardClass(data.net_pnl)}>
-            <h3>Net P&L</h3>
-            <div className="value">{formatCurrency(data.net_pnl)}</div>
-          </div>
+          {/* Investment Totals (For Reference) */}
+          <PanelSection title="Investment Totals">
+            <StatRow label="Total Invested (All Shares)" value={data.total_invested} color="#999" />
+            <StatRow label="Total Cost Breakdown" value={data.cost_of_sold_shares + data.cost_of_held_shares} color="#999" />
+          </PanelSection>
         </div>
       )}
     </div>

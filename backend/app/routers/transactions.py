@@ -15,11 +15,13 @@ def get_transactions(
     broker: str = "robinhood",
     start: date = Query(None),
     end: date = Query(None),
+    ticker: str = Query(None),
+    trans_code: str = Query(None),
     db: Session = Depends(get_db)
 ):
     """Get transaction history for a broker (Buy, Sell, CDIV only)."""
     # Cache key
-    cache_key = f"transactions:{broker}:{start}:{end}"
+    cache_key = f"transactions:{broker}:{start}:{end}:{ticker}:{trans_code}"
     cached = get_cached(cache_key)
     if cached:
         return cached
@@ -33,6 +35,10 @@ def get_transactions(
         query = query.filter(Transaction.activity_date >= start)
     if end:
         query = query.filter(Transaction.activity_date <= end)
+    if ticker:
+        query = query.filter(Transaction.ticker == ticker)
+    if trans_code:
+        query = query.filter(Transaction.trans_code == trans_code)
 
     results = query.order_by(Transaction.activity_date.desc()).all()
 

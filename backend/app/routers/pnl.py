@@ -7,7 +7,9 @@ from ..database import get_db
 from ..models import Transaction
 from ..schemas import PnLSummary
 from ..cache import get_cached, set_cached
+from ..logger import setup_logger
 
+logger = setup_logger(__name__)
 router = APIRouter(prefix="/api", tags=["pnl"])
 
 @router.get("/report/pnl", response_model=PnLSummary)
@@ -21,7 +23,10 @@ def get_pnl_summary(
     cache_key = f"pnl:{broker}:{start}:{end}"
     cached = get_cached(cache_key)
     if cached:
+        logger.debug(f"Returning cached P&L summary for {broker} ({start} to {end})")
         return cached
+
+    logger.debug(f"Generating P&L summary for {broker} ({start} to {end})")
 
     query = db.query(Transaction).filter(Transaction.broker == broker)
 
@@ -30,34 +35,80 @@ def get_pnl_summary(
     if end:
         query = query.filter(Transaction.activity_date <= end)
 
-    # Total invested (sum of all buy amounts, which are negative)
-    buy_total = db.query(func.sum(Transaction.amount)).filter(
+    # Get all tickers traded
+    tickers = db.query(Transaction.ticker).filter(
         Transaction.broker == broker,
-        Transaction.trans_code == 'Buy'
+        Transaction.ticker.isnot(None),
+        Transaction.trans_code.in_(['Buy', 'Sell'])
     )
     if start:
-        buy_total = buy_total.filter(Transaction.activity_date >= start)
+        tickers = tickers.filter(Transaction.activity_date >= start)
     if end:
-        buy_total = buy_total.filter(Transaction.activity_date <= end)
-    buy_total = buy_total.scalar() or Decimal('0')
+        tickers = tickers.filter(Transaction.activity_date <= end)
+    tickers = tickers.distinct().all()
 
-    total_invested = -buy_total
+    total_invested = Decimal('0')
+    total_received = Decimal('0')
+    cost_of_sold_shares = Decimal('0')
+    realized_pnl = Decimal('0')
 
-    # Total received (sum of all sell amounts, which are positive)
-    sell_total = db.query(func.sum(Transaction.amount)).filter(
-        Transaction.broker == broker,
-        Transaction.trans_code == 'Sell'
-    )
-    if start:
-        sell_total = sell_total.filter(Transaction.activity_date >= start)
-    if end:
-        sell_total = sell_total.filter(Transaction.activity_date <= end)
-    sell_total = sell_total.scalar() or Decimal('0')
+    for (ticker,) in tickers:
+        # Calculate shares bought/sold for this ticker
+        bought = db.query(func.sum(Transaction.quantity)).filter(
+            Transaction.broker == broker,
+            Transaction.ticker == ticker,
+            Transaction.trans_code == 'Buy'
+        )
+        if start:
+            bought = bought.filter(Transaction.activity_date >= start)
+        if end:
+            bought = bought.filter(Transaction.activity_date <= end)
+        bought = bought.scalar() or Decimal('0')
 
-    total_received = sell_total
+        sold = db.query(func.sum(Transaction.quantity)).filter(
+            Transaction.broker == broker,
+            Transaction.ticker == ticker,
+            Transaction.trans_code == 'Sell'
+        )
+        if start:
+            sold = sold.filter(Transaction.activity_date >= start)
+        if end:
+            sold = sold.filter(Transaction.activity_date <= end)
+        sold = sold.scalar() or Decimal('0')
 
-    # Realized P&L from trades
-    realized_pnl = total_received - total_invested
+        # Calculate cost basis
+        buy_amount = db.query(func.sum(Transaction.amount)).filter(
+            Transaction.broker == broker,
+            Transaction.ticker == ticker,
+            Transaction.trans_code == 'Buy'
+        )
+        if start:
+            buy_amount = buy_amount.filter(Transaction.activity_date >= start)
+        if end:
+            buy_amount = buy_amount.filter(Transaction.activity_date <= end)
+        buy_amount = buy_amount.scalar() or Decimal('0')
+
+        sell_amount = db.query(func.sum(Transaction.amount)).filter(
+            Transaction.broker == broker,
+            Transaction.ticker == ticker,
+            Transaction.trans_code == 'Sell'
+        )
+        if start:
+            sell_amount = sell_amount.filter(Transaction.activity_date >= start)
+        if end:
+            sell_amount = sell_amount.filter(Transaction.activity_date <= end)
+        sell_amount = sell_amount.scalar() or Decimal('0')
+
+        total_spent = -buy_amount
+        total_received += sell_amount
+        total_invested += total_spent
+
+        # Only count realized P&L for shares that were actually sold
+        if bought > 0 and sold > 0:
+            cost_per_share = total_spent / bought
+            cost_of_sold = cost_per_share * sold
+            cost_of_sold_shares += cost_of_sold
+            realized_pnl += sell_amount - cost_of_sold
 
     # Dividends earned
     dividends = db.query(func.sum(Transaction.amount)).filter(
@@ -82,17 +133,62 @@ def get_pnl_summary(
     fees_sum = fees.scalar() or Decimal('0')
     fees = -fees_sum  # Fees are negative, convert to positive for display
 
-    # Net P&L = realized_pnl + dividends - fees
-    net_pnl = realized_pnl + dividends - fees
+    # Calculate held shares cost
+    cost_of_held_shares = total_invested - cost_of_sold_shares
+
+    # Calculate unrealized P&L (requires current prices)
+    from ..routers.holdings import get_consolidated_report
+    consolidated = get_consolidated_report(broker, db)
+    holdings = consolidated.get('holdings', [])
+
+    import yfinance as yf
+    import pandas as pd
+    unrealized_pnl = Decimal('0')
+    held_shares_current_value = Decimal('0')
+    if holdings:
+        tickers_str = ','.join([h['ticker'] for h in holdings])
+        ticker_list = [t.strip().upper() for t in tickers_str.split(",")]
+        try:
+            data = yf.download(ticker_list, period="1d", progress=False)
+
+            if len(ticker_list) == 1:
+                close_price = data['Close'].iloc[-1] if len(data) > 0 else None
+                prices = {ticker_list[0]: float(close_price) if close_price is not None else None}
+            else:
+                prices = {}
+                for ticker in ticker_list:
+                    try:
+                        close_price = data['Close'][ticker].iloc[-1]
+                        prices[ticker] = float(close_price) if not pd.isna(close_price) else None
+                    except:
+                        prices[ticker] = None
+        except Exception as e:
+            logger.warning(f"Could not fetch prices for unrealized P&L: {e}")
+            prices = {t: None for t in ticker_list}
+
+        for holding in holdings:
+            if holding['shares_held'] > 0 and prices.get(holding['ticker']):
+                current_value = holding['shares_held'] * prices[holding['ticker']]
+                cost_basis = holding['shares_held'] * holding['avg_cost']
+                unrealized_pnl += Decimal(str(current_value - cost_basis))
+                held_shares_current_value += Decimal(str(current_value))
+
+    # Net P&L = realized_pnl + unrealized_pnl + dividends - fees
+    net_pnl = realized_pnl + unrealized_pnl + dividends - fees
 
     result = PnLSummary(
         total_invested=float(total_invested),
+        cost_of_sold_shares=float(cost_of_sold_shares),
+        cost_of_held_shares=float(cost_of_held_shares),
         total_received=float(total_received),
+        held_shares_current_value=float(held_shares_current_value),
         realized_pnl=float(realized_pnl),
+        unrealized_pnl=float(unrealized_pnl),
         dividends=float(dividends),
         fees=float(fees),
         net_pnl=float(net_pnl)
     )
 
     set_cached(cache_key, result.model_dump(), ttl=300)
+    logger.info(f"P&L Summary - Realized: ${realized_pnl:.2f}, Unrealized: ${unrealized_pnl:.2f}, Net: ${net_pnl:.2f} - CACHED")
     return result

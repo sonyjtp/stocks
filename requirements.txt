@@ -6,3 +6,6 @@ redis
 python-multipart
 pydantic
 pydantic-settings
+httpx
+python-dotenv
+yfinance

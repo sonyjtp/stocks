@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import TransactionHistory from './pages/TransactionHistory'
-import ConsolidatedReport from './pages/ConsolidatedReport'
+import CurrentHoldings from './pages/CurrentHoldings'
+import AllTimePerformance from './pages/AllTimePerformance'
 import PnLSummary from './pages/PnLSummary'
 import Transfers from './pages/Transfers'
 import Upload from './pages/Upload'
@@ -17,9 +18,10 @@ export default function App() {
           <nav className="navbar">
             <h1>Stock Tracker</h1>
             <ul>
-              <li><Link to="/">Transactions</Link></li>
-              <li><Link to="/consolidated">Report</Link></li>
+              <li><Link to="/holdings">Holdings</Link></li>
+              <li><Link to="/performance">Performance</Link></li>
               <li><Link to="/pnl">P&L</Link></li>
+              <li><Link to="/">Transactions</Link></li>
               <li><Link to="/transfers">Transfers</Link></li>
               <li><Link to="/upload">Upload</Link></li>
             </ul>
@@ -28,7 +30,8 @@ export default function App() {
           <main className="content">
             <Routes>
               <Route path="/" element={<TransactionHistory />} />
-              <Route path="/consolidated" element={<ConsolidatedReport />} />
+              <Route path="/holdings" element={<CurrentHoldings />} />
+              <Route path="/performance" element={<AllTimePerformance />} />
               <Route path="/pnl" element={<PnLSummary />} />
               <Route path="/transfers" element={<Transfers />} />
               <Route path="/upload" element={<Upload />} />

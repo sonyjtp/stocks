@@ -38,12 +38,16 @@ class HoldingsItem(BaseModel):
     avg_cost: Decimal
 
 class PnLSummary(BaseModel):
-    total_invested: Decimal
-    total_received: Decimal
-    realized_pnl: Decimal
-    dividends: Decimal
-    fees: Decimal
-    net_pnl: Decimal
+    total_invested: float
+    cost_of_sold_shares: float
+    cost_of_held_shares: float
+    total_received: float
+    held_shares_current_value: float
+    realized_pnl: float
+    unrealized_pnl: float
+    dividends: float
+    fees: float
+    net_pnl: float
 
 class TransfersSummary(BaseModel):
     ach_deposits: Decimal
@@ -51,6 +55,17 @@ class TransfersSummary(BaseModel):
     interest_earned: Decimal
     fees_paid: Decimal
 
+class DuplicateTransaction(BaseModel):
+    activity_date: date
+    ticker: Optional[str]
+    description: str
+    trans_code: str
+    quantity: Optional[Decimal]
+    price: Optional[Decimal]
+    amount: Decimal
+
 class UploadResponse(BaseModel):
     message: str
     rows_inserted: int
+    duplicates: list[DuplicateTransaction] = []
+    db_duplicates: list[DuplicateTransaction] = []

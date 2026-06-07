@@ -13,26 +13,40 @@ def parse_amount(amount_str: str) -> Decimal:
     is_negative = '(' in amount_str and ')' in amount_str
     cleaned = amount_str.replace('(', '').replace(')', '').replace('$', '').replace(',', '').strip()
 
-    if not cleaned:
+    if not cleaned or cleaned == '.':
         return Decimal('0')
 
-    value = Decimal(cleaned)
-    return -value if is_negative else value
+    try:
+        value = Decimal(cleaned)
+        return -value if is_negative else value
+    except:
+        return Decimal('0')
 
 def parse_decimal(value_str: str) -> Decimal:
     """Convert numeric string to Decimal."""
     if not value_str or value_str.strip() == '-':
         return None
     cleaned = value_str.replace('$', '').replace(',', '').strip()
-    if not cleaned:
+    if not cleaned or cleaned == '.':
         return None
-    return Decimal(cleaned)
+    try:
+        return Decimal(cleaned)
+    except:
+        return None
 
 def parse_date(date_str: str) -> datetime.date:
-    """Parse date string in M/D/YYYY format."""
+    """Parse date string in M/D/YY or M/D/YYYY format."""
     if not date_str or date_str.strip() == '-':
         return None
-    return datetime.strptime(date_str.strip(), '%m/%d/%Y').date()
+    try:
+        # Try M/D/YYYY first, then M/D/YY
+        date_str = date_str.strip()
+        try:
+            return datetime.strptime(date_str, '%m/%d/%Y').date()
+        except ValueError:
+            return datetime.strptime(date_str, '%m/%d/%y').date()
+    except:
+        return None
 
 def parse_robinhood_csv(csv_content: str) -> List[Dict[str, Any]]:
     """
