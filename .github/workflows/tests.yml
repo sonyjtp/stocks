@@ -59,11 +59,11 @@ jobs:
 
       - name: Check formatting with black
         run: |
-          black --check backend/app
+          black --check backend/app --line-length=100
 
       - name: Check imports with isort
         run: |
-          isort --check-only --profile=black backend/app
+          isort --check-only --profile=black backend/app --line-length=100
 
       - name: Security check with bandit
         run: |
