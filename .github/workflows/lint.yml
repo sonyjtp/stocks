@@ -26,17 +26,17 @@ jobs:
 
       - name: Run flake8
         run: |
-          flake8 backend/app --count --statistics --max-line-length=100 --extend-ignore=E203,W503
+          flake8 backend --count --statistics --max-line-length=100 --extend-ignore=E203,W503
           echo "✓ flake8 passed"
 
       - name: Check black formatting
         run: |
-          black --check backend/app --line-length=100
+          black --check backend --line-length=100
           echo "✓ black formatting check passed"
 
       - name: Check isort imports
         run: |
-          isort --check-only --profile=black backend/app --line-length=100
+          isort --check-only --profile=black backend --line-length=100
           echo "✓ isort import check passed"
 
       - name: Run bandit security scan

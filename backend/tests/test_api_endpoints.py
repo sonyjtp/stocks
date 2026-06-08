@@ -2,6 +2,7 @@
 Integration tests for transactions, transfers, settings, and main endpoints.
 Uses an in-memory SQLite DB so no external infrastructure is needed.
 """
+
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -22,7 +23,6 @@ from app.models import (
     UploadLogDeletion,
     UploadTransaction,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

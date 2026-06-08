@@ -1,13 +1,17 @@
-import pytest
 from datetime import date
 from decimal import Decimal
 
-from app.parsers.robinhood import parse_amount, parse_decimal, parse_date, parse_robinhood_csv
+from app.parsers.robinhood import parse_amount, parse_date, parse_decimal, parse_robinhood_csv
 
+_HEADER = (
+    "Activity Date,Process Date,Settle Date,"
+    "Instrument,Description,Trans Code,Quantity,Price,Amount\n"
+)
 
 # ---------------------------------------------------------------------------
 # parse_amount
 # ---------------------------------------------------------------------------
+
 
 class TestParseAmount:
     def test_plain_positive(self):
@@ -45,6 +49,7 @@ class TestParseAmount:
 # parse_decimal
 # ---------------------------------------------------------------------------
 
+
 class TestParseDecimal:
     def test_plain_number(self):
         assert parse_decimal("150.00") == Decimal("150.00")
@@ -77,6 +82,7 @@ class TestParseDecimal:
 # ---------------------------------------------------------------------------
 # parse_date
 # ---------------------------------------------------------------------------
+
 
 class TestParseDate:
     def test_m_d_yyyy(self):
@@ -152,24 +158,33 @@ class TestParseRobinhoodCsv:
         assert ach["amount"] == Decimal("500.00")
 
     def test_empty_activity_date_skipped(self):
-        csv = "Activity Date,Process Date,Settle Date,Instrument,Description,Trans Code,Quantity,Price,Amount\n,,,AAPL,Apple,Buy,1,$100,-$100\n"
-        result = parse_robinhood_csv(csv)
+        result = parse_robinhood_csv(_HEADER + ",,,AAPL,Apple,Buy,1,$100,-$100\n")
         assert len(result) == 0
 
     def test_empty_csv_returns_empty_list(self):
-        result = parse_robinhood_csv("Activity Date,Process Date,Settle Date,Instrument,Description,Trans Code,Quantity,Price,Amount\n")
+        result = parse_robinhood_csv(_HEADER)
         assert result == []
 
     def test_all_required_keys_present(self):
         result = parse_robinhood_csv(SAMPLE_CSV)
-        required = {"broker", "activity_date", "process_date", "settle_date",
-                    "ticker", "description", "trans_code", "quantity", "price", "amount"}
+        required = {
+            "broker",
+            "activity_date",
+            "process_date",
+            "settle_date",
+            "ticker",
+            "description",
+            "trans_code",
+            "quantity",
+            "price",
+            "amount",
+        }
         for tx in result:
             assert required.issubset(tx.keys())
 
     def test_fractional_shares(self):
-        csv = "Activity Date,Process Date,Settle Date,Instrument,Description,Trans Code,Quantity,Price,Amount\n"
-        csv += "8/14/2020,8/14/2020,8/16/2020,AAPL,Apple Inc,Buy,0.021439,$458.97,($9.84)\n"
+        row = "8/14/2020,8/14/2020,8/16/2020,AAPL,Apple Inc,Buy,0.021439,$458.97,($9.84)\n"
+        csv = _HEADER + row
         result = parse_robinhood_csv(csv)
         assert len(result) == 1
         assert result[0]["quantity"] == Decimal("0.021439")

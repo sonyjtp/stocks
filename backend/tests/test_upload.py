@@ -1,7 +1,6 @@
 """Tests for the upload router — file ingestion, validation, and duplicate handling."""
+
 import io
-from datetime import date
-from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,17 +13,22 @@ from app.database import Base, get_db
 from app.main import app
 from app.models import Transaction, UploadLog
 
+_HEADER = (
+    "Activity Date,Process Date,Settle Date,"
+    "Instrument,Description,Trans Code,Quantity,Price,Amount\n"
+)
+
 SAMPLE_CSV = (
-    "Activity Date,Process Date,Settle Date,Instrument,Description,Trans Code,Quantity,Price,Amount\n"
-    "1/15/2024,1/15/2024,1/17/2024,AAPL,Apple Inc,Buy,10,$150.00,($1500.00)\n"
-    "1/20/2024,1/20/2024,1/22/2024,AAPL,Apple Inc,Sell,5,$160.00,$800.00\n"
-    "2/1/2024,2/1/2024,2/3/2024,,ACH Deposit,ACH,,,$ 500.00\n"
+    _HEADER
+    + "1/15/2024,1/15/2024,1/17/2024,AAPL,Apple Inc,Buy,10,$150.00,($1500.00)\n"
+    + "1/20/2024,1/20/2024,1/22/2024,AAPL,Apple Inc,Sell,5,$160.00,$800.00\n"
+    + "2/1/2024,2/1/2024,2/3/2024,,ACH Deposit,ACH,,,$ 500.00\n"
 )
 
 DUPLICATE_CSV = (
-    "Activity Date,Process Date,Settle Date,Instrument,Description,Trans Code,Quantity,Price,Amount\n"
-    "1/15/2024,1/15/2024,1/17/2024,AAPL,Apple Inc,Buy,10,$150.00,($1500.00)\n"
-    "1/15/2024,1/15/2024,1/17/2024,AAPL,Apple Inc,Buy,10,$150.00,($1500.00)\n"
+    _HEADER
+    + "1/15/2024,1/15/2024,1/17/2024,AAPL,Apple Inc,Buy,10,$150.00,($1500.00)\n"
+    + "1/15/2024,1/15/2024,1/17/2024,AAPL,Apple Inc,Buy,10,$150.00,($1500.00)\n"
 )
 
 

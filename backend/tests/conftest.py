@@ -1,17 +1,18 @@
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from unittest.mock import MagicMock
-
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # Add backend/ to sys.path so `from app.xxx import ...` resolves
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.database import Base
-from app.main import app
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.database import Base  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture(scope="session")

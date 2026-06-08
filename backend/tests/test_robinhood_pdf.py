@@ -1,19 +1,26 @@
-import pytest
 from datetime import date
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.parsers.robinhood_pdf import (
-    parse_amount, parse_decimal, parse_date,
-    extract_cusip, is_real_ticker, extract_ticker_from_text,
-    _extract_transactions_from_text, _parse_new_format, _parse_2019_format,
-    _build_transaction, batch_lookup_cusips, _cusip_cache,
+    _build_transaction,
+    _cusip_cache,
+    _extract_transactions_from_text,
+    _parse_2019_format,
+    _parse_new_format,
+    batch_lookup_cusips,
+    extract_cusip,
+    extract_ticker_from_text,
+    is_real_ticker,
+    parse_amount,
+    parse_date,
+    parse_decimal,
 )
-
 
 # ---------------------------------------------------------------------------
 # parse_amount
 # ---------------------------------------------------------------------------
+
 
 class TestParseAmount:
     def test_plain_positive(self):
@@ -39,6 +46,7 @@ class TestParseAmount:
 # parse_decimal
 # ---------------------------------------------------------------------------
 
+
 class TestParseDecimal:
     def test_plain(self):
         assert parse_decimal("150.00") == Decimal("150.00")
@@ -60,6 +68,7 @@ class TestParseDecimal:
 # parse_date
 # ---------------------------------------------------------------------------
 
+
 class TestParseDate:
     def test_two_digit_year(self):
         assert parse_date("1/15/24") == date(2024, 1, 15)
@@ -80,6 +89,7 @@ class TestParseDate:
 # ---------------------------------------------------------------------------
 # extract_cusip
 # ---------------------------------------------------------------------------
+
 
 class TestExtractCusip:
     def test_standard_format(self):
@@ -105,6 +115,7 @@ class TestExtractCusip:
 # ---------------------------------------------------------------------------
 # is_real_ticker
 # ---------------------------------------------------------------------------
+
 
 class TestIsRealTicker:
     def test_valid_1_char(self):
@@ -139,6 +150,7 @@ class TestIsRealTicker:
 # extract_ticker_from_text
 # ---------------------------------------------------------------------------
 
+
 class TestExtractTickerFromText:
     def test_returns_ticker_from_description(self):
         assert extract_ticker_from_text("AAPL Apple Inc") == "AAPL"
@@ -168,9 +180,16 @@ class TestExtractTickerFromText:
 # _build_transaction
 # ---------------------------------------------------------------------------
 
+
 class TestBuildTransaction:
-    def _call(self, trans_type, desc="Apple Inc CUSIP: 037833100",
-              qty=Decimal("10"), price=Decimal("150"), amount=Decimal("1500")):
+    def _call(
+        self,
+        trans_type,
+        desc="Apple Inc CUSIP: 037833100",
+        qty=Decimal("10"),
+        price=Decimal("150"),
+        amount=Decimal("1500"),
+    ):
         return _build_transaction(trans_type, date(2024, 1, 15), desc, qty, price, amount)
 
     def test_bought_sets_buy_code(self):
@@ -208,14 +227,24 @@ class TestBuildTransaction:
 
     def test_required_keys_present(self):
         tx = self._call("BOUGHT")
-        for key in ("broker", "activity_date", "ticker", "description",
-                    "trans_code", "quantity", "price", "amount", "_cusip"):
+        for key in (
+            "broker",
+            "activity_date",
+            "ticker",
+            "description",
+            "trans_code",
+            "quantity",
+            "price",
+            "amount",
+            "_cusip",
+        ):
             assert key in tx
 
 
 # ---------------------------------------------------------------------------
 # _parse_new_format  (BOUGHT/SOLD/ACH lines)
 # ---------------------------------------------------------------------------
+
 
 class TestParseNewFormat:
     def test_buy_parses_correctly(self):
@@ -249,10 +278,12 @@ class TestParseNewFormat:
 # _parse_2019_format  (Margin Buy/Sell lines)
 # ---------------------------------------------------------------------------
 
+
 class TestParse2019Format:
     def test_margin_buy(self):
-        tx = _parse_2019_format("BOUGHT", "Amazon.com CUSIP: 023135106",
-                                "12/15/2019", "10 1800.00 18000.00")
+        tx = _parse_2019_format(
+            "BOUGHT", "Amazon.com CUSIP: 023135106", "12/15/2019", "10 1800.00 18000.00"
+        )
         assert tx is not None
         assert tx["trans_code"] == "Buy"
         assert tx["amount"] == Decimal("-18000.00")
@@ -268,8 +299,9 @@ class TestParse2019Format:
         assert tx is None
 
     def test_qty_and_price_parsed(self):
-        tx = _parse_2019_format("BOUGHT", "Apple CUSIP: 037833100",
-                                "3/15/2019", "10 150.00 1500.00")
+        tx = _parse_2019_format(
+            "BOUGHT", "Apple CUSIP: 037833100", "3/15/2019", "10 150.00 1500.00"
+        )
         assert tx["quantity"] == Decimal("10")
         assert tx["price"] == Decimal("150.00")
 
@@ -277,6 +309,7 @@ class TestParse2019Format:
 # ---------------------------------------------------------------------------
 # _extract_transactions_from_text
 # ---------------------------------------------------------------------------
+
 
 class TestExtractTransactionsFromText:
     def test_new_format_bought(self):
@@ -307,10 +340,7 @@ class TestExtractTransactionsFromText:
         assert len(txs) == 3
 
     def test_2019_format_margin_buy(self):
-        text = (
-            "Amazon.com\n"
-            "Margin Buy 1 10/15/2019 10 1800.00 18000.00\n"
-        )
+        text = "Amazon.com\n" "Margin Buy 1 10/15/2019 10 1800.00 18000.00\n"
         txs = _extract_transactions_from_text(text)
         assert len(txs) == 1
         assert txs[0]["trans_code"] == "Buy"
@@ -333,6 +363,7 @@ class TestExtractTransactionsFromText:
 # batch_lookup_cusips  (OpenFIGI mocked)
 # ---------------------------------------------------------------------------
 
+
 class TestBatchLookupCusips:
     def setup_method(self):
         _cusip_cache.clear()
@@ -340,9 +371,7 @@ class TestBatchLookupCusips:
     def test_returns_ticker_for_known_cusip(self):
         mock_response = MagicMock()
         mock_response.ok = True
-        mock_response.json.return_value = [
-            {"data": [{"exchCode": "UW", "ticker": "AAPL"}]}
-        ]
+        mock_response.json.return_value = [{"data": [{"exchCode": "UW", "ticker": "AAPL"}]}]
         with patch("app.parsers.robinhood_pdf.requests.post", return_value=mock_response):
             result = batch_lookup_cusips(["037833100"])
         assert result == {"037833100": "AAPL"}
@@ -351,10 +380,12 @@ class TestBatchLookupCusips:
         mock_response = MagicMock()
         mock_response.ok = True
         mock_response.json.return_value = [
-            {"data": [
-                {"exchCode": "LN", "ticker": "AAPL.L"},
-                {"exchCode": "UW", "ticker": "AAPL"},
-            ]}
+            {
+                "data": [
+                    {"exchCode": "LN", "ticker": "AAPL.L"},
+                    {"exchCode": "UW", "ticker": "AAPL"},
+                ]
+            }
         ]
         with patch("app.parsers.robinhood_pdf.requests.post", return_value=mock_response):
             result = batch_lookup_cusips(["037833100"])
@@ -363,9 +394,7 @@ class TestBatchLookupCusips:
     def test_falls_back_to_first_entry_if_no_us_exchange(self):
         mock_response = MagicMock()
         mock_response.ok = True
-        mock_response.json.return_value = [
-            {"data": [{"exchCode": "LN", "ticker": "AAPL.L"}]}
-        ]
+        mock_response.json.return_value = [{"data": [{"exchCode": "LN", "ticker": "AAPL.L"}]}]
         with patch("app.parsers.robinhood_pdf.requests.post", return_value=mock_response):
             result = batch_lookup_cusips(["037833100"])
         assert result.get("037833100") == "AAPL.L"

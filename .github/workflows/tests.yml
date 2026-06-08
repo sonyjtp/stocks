@@ -53,22 +53,6 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
-      - name: Lint with flake8
-        run: |
-          flake8 backend/app --max-line-length=100 --extend-ignore=E203,W503
-
-      - name: Check formatting with black
-        run: |
-          black --check backend/app --line-length=100
-
-      - name: Check imports with isort
-        run: |
-          isort --check-only --profile=black backend/app --line-length=100
-
-      - name: Security check with bandit
-        run: |
-          bandit -r backend/app -c .bandit
-
       - name: Run tests with pytest
         run: |
           pytest backend/tests -v --cov=backend/app --cov-report=xml --cov-report=term-missing
