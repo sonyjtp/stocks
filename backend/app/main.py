@@ -1,12 +1,14 @@
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database import engine, Base
-from .routers import upload, transactions, holdings, pnl, transfers, prices, settings
+
+from .database import Base, engine
 from .logger import get_logger
+from .routers import holdings, pnl, prices, settings, transactions, transfers, upload
 
 # Load environment variables from .env.local (development) or .env (production)
 env_path = Path(__file__).parent.parent.parent / ".env.local"
@@ -21,11 +23,13 @@ logger = get_logger(__name__)
 Base.metadata.create_all(bind=engine)
 logger.info("Database tables initialized")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=== Stock Trading Tracker API Starting ===")
     yield
     logger.info("=== Stock Trading Tracker API Shutting Down ===")
+
 
 app = FastAPI(
     title=os.getenv("API_TITLE", "Stock Trading Tracker API"),
@@ -56,20 +60,24 @@ app.include_router(transfers.router)
 app.include_router(prices.router)
 app.include_router(settings.router)
 
+
 @app.get("/")
 def root():
     logger.debug("Root endpoint called")
     return {"message": "Stock Trading Tracker API"}
+
 
 @app.get("/health")
 def health():
     logger.debug("Health check endpoint called")
     return {"status": "ok"}
 
+
 @app.post("/admin/clear-cache")
 def clear_cache():
     """Emergency endpoint to clear all cached data if needed."""
     from .cache import invalidate_cache
+
     invalidate_cache()
     logger.warning("Cache cleared via admin endpoint")
     return {"message": "Cache cleared"}

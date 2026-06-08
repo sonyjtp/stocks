@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 import sys
 from pathlib import Path
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add backend/ to sys.path so `from app.xxx import ...` resolves
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.database import Base
 from app.main import app

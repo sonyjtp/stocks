@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from typing import List
 from datetime import datetime
-from ..database import get_db
-from ..models import UploadLog, UploadError, UploadDuplicate, UploadTransaction, UploadLogDeletion
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import desc
+from sqlalchemy.orm import Session
+
 from ..cache import invalidate_cache
+from ..database import get_db
 from ..logger import get_logger
+from ..models import UploadDuplicate, UploadError, UploadLog, UploadLogDeletion, UploadTransaction
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -36,10 +37,14 @@ def get_upload_logs(db: Session = Depends(get_db)):
             "failed_count": len(log.failed_rows),
             "has_duplicate_rows": len(log.duplicate_rows) > 0,
             "has_inserted_rows": len(log.inserted_transactions) > 0,
-            "deletion": {
-                "deleted_count": log.deletion.deleted_count,
-                "deleted_at": log.deletion.deleted_at.isoformat(),
-            } if log.deletion else None,
+            "deletion": (
+                {
+                    "deleted_count": log.deletion.deleted_count,
+                    "deleted_at": log.deletion.deleted_at.isoformat(),
+                }
+                if log.deletion
+                else None
+            ),
         }
         for log in logs
     ]
@@ -85,10 +90,15 @@ def get_upload_duplicates(log_id: int, db: Session = Depends(get_db)):
 def rollback_upload_transactions(log_id: int, db: Session = Depends(get_db)):
     """Delete all transactions inserted by this upload from the database."""
     from ..models import Transaction
+
     links = db.query(UploadTransaction).filter(UploadTransaction.upload_log_id == log_id).all()
-    tx_ids = [l.transaction_id for l in links]
-    deleted = db.query(Transaction).filter(Transaction.id.in_(tx_ids)).delete(synchronize_session=False)
-    db.add(UploadLogDeletion(upload_log_id=log_id, deleted_count=deleted, deleted_at=datetime.utcnow()))
+    tx_ids = [lnk.transaction_id for lnk in links]
+    deleted = (
+        db.query(Transaction).filter(Transaction.id.in_(tx_ids)).delete(synchronize_session=False)
+    )
+    db.add(
+        UploadLogDeletion(upload_log_id=log_id, deleted_count=deleted, deleted_at=datetime.utcnow())
+    )
     db.commit()
     invalidate_cache()
     return {"deleted_count": deleted}
@@ -99,6 +109,7 @@ def delete_upload_log(log_id: int, db: Session = Depends(get_db)):
     log = db.query(UploadLog).filter(UploadLog.id == log_id).first()
     if not log:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Log not found")
     db.delete(log)
     db.commit()

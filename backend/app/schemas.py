@@ -1,7 +1,9 @@
-from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
 from typing import Optional
+
+from pydantic import BaseModel
+
 
 class TransactionBase(BaseModel):
     activity_date: date
@@ -14,14 +16,17 @@ class TransactionBase(BaseModel):
     price: Optional[Decimal] = None
     amount: Decimal
 
+
 class TransactionCreate(TransactionBase):
     broker: str
+
 
 class TransactionResponse(TransactionCreate):
     id: int
 
     class Config:
         from_attributes = True
+
 
 class ConsolidatedReportItem(BaseModel):
     ticker: str
@@ -34,10 +39,12 @@ class ConsolidatedReportItem(BaseModel):
     realized_pnl: Decimal
     avg_cost: Decimal
 
+
 class HoldingsItem(BaseModel):
     ticker: str
     shares_held: Decimal
     avg_cost: Decimal
+
 
 class PnLSummary(BaseModel):
     total_invested: float
@@ -51,14 +58,17 @@ class PnLSummary(BaseModel):
     fees: float
     net_pnl: float
 
+
 class TransfersSummary(BaseModel):
     ach_deposits: Decimal
     ach_withdrawals: Decimal
     interest_earned: Decimal
     fees_paid: Decimal
 
+
 class DuplicateTransaction(TransactionBase):
     pass
+
 
 class UploadResponse(BaseModel):
     message: str

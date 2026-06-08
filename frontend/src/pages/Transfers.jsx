@@ -6,7 +6,7 @@ import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
-const TRANSFER_CODES = ['ACH', 'INT', 'GOLD', 'MINT', 'SLIP', 'DTAX']
+const TRANSFER_CODES = ['ACH', 'DCF', 'INT', 'GOLD', 'MINT', 'SLIP', 'DTAX']
 
 const CODE_LABEL = {
   INT: 'Interest',
@@ -17,7 +17,7 @@ const CODE_LABEL = {
 }
 
 const displayLabel = (code, amount) => {
-  if (code === 'ACH') return parseFloat(amount) >= 0 ? 'Deposit' : 'Withdrawal'
+  if (code === 'ACH' || code === 'DCF') return parseFloat(amount) >= 0 ? 'Deposit' : 'Withdrawal'
   return CODE_LABEL[code] || code
 }
 

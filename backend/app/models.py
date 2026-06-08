@@ -1,9 +1,9 @@
-from sqlalchemy import Column, Integer, String, Date, Numeric, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+
 from .database import Base
-from datetime import date
-from decimal import Decimal
+
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -34,10 +34,21 @@ class UploadLog(Base):
     db_duplicates = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
 
-    failed_rows = relationship("UploadError", back_populates="upload_log", cascade="all, delete-orphan")
-    duplicate_rows = relationship("UploadDuplicate", back_populates="upload_log", cascade="all, delete-orphan")
-    inserted_transactions = relationship("UploadTransaction", back_populates="upload_log", cascade="all, delete-orphan")
-    deletion = relationship("UploadLogDeletion", back_populates="upload_log", uselist=False, cascade="all, delete-orphan")
+    failed_rows = relationship(
+        "UploadError", back_populates="upload_log", cascade="all, delete-orphan"
+    )
+    duplicate_rows = relationship(
+        "UploadDuplicate", back_populates="upload_log", cascade="all, delete-orphan"
+    )
+    inserted_transactions = relationship(
+        "UploadTransaction", back_populates="upload_log", cascade="all, delete-orphan"
+    )
+    deletion = relationship(
+        "UploadLogDeletion",
+        back_populates="upload_log",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class UploadError(Base):
@@ -75,6 +86,7 @@ class UploadDuplicate(Base):
 
 class UploadTransaction(Base):
     """Tracks which transaction IDs were inserted by each upload."""
+
     __tablename__ = "upload_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -86,6 +98,7 @@ class UploadTransaction(Base):
 
 class UploadLogDeletion(Base):
     """Records when an upload's transactions were rolled back from the DB."""
+
     __tablename__ = "upload_log_deletions"
 
     upload_log_id = Column(Integer, ForeignKey("upload_logs.id"), primary_key=True)

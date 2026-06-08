@@ -1,16 +1,18 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
 from datetime import date
 from decimal import Decimal
 from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from ..cache import get_cached, invalidate_cache, set_cached
 from ..database import get_db
 from ..models import Transaction
 from ..schemas import TransactionResponse
-from ..cache import get_cached, set_cached, invalidate_cache
 
 router = APIRouter(prefix="/api", tags=["transactions"])
+
 
 @router.get("/transactions", response_model=List[TransactionResponse])
 def get_transactions(
@@ -19,7 +21,7 @@ def get_transactions(
     end: date = Query(None),
     ticker: str = Query(None),
     trans_code: str = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Get transaction history for a broker (Buy, Sell, CDIV only)."""
     # Cache key
@@ -30,7 +32,7 @@ def get_transactions(
 
     query = db.query(Transaction).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(['Buy', 'Sell', 'CDIV', 'CONV', 'SPL'])
+        Transaction.trans_code.in_(["Buy", "Sell", "CDIV", "CONV", "SPL"]),
     )
 
     if start:
@@ -45,22 +47,25 @@ def get_transactions(
     results = query.order_by(Transaction.activity_date.desc()).all()
 
     # Cache for 5 minutes
-    set_cached(cache_key, [
-        {
-            "id": t.id,
-            "broker": t.broker,
-            "activity_date": t.activity_date,
-            "process_date": t.process_date,
-            "settle_date": t.settle_date,
-            "ticker": t.ticker,
-            "description": t.description,
-            "trans_code": t.trans_code,
-            "quantity": float(t.quantity) if t.quantity else None,
-            "price": float(t.price) if t.price else None,
-            "amount": float(t.amount),
-        }
-        for t in results
-    ])
+    set_cached(
+        cache_key,
+        [
+            {
+                "id": t.id,
+                "broker": t.broker,
+                "activity_date": t.activity_date,
+                "process_date": t.process_date,
+                "settle_date": t.settle_date,
+                "ticker": t.ticker,
+                "description": t.description,
+                "trans_code": t.trans_code,
+                "quantity": float(t.quantity) if t.quantity else None,
+                "price": float(t.price) if t.price else None,
+                "amount": float(t.amount),
+            }
+            for t in results
+        ],
+    )
 
     return results
 
@@ -86,21 +91,18 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/transactions/{transaction_id}", response_model=TransactionResponse)
-def update_transaction(
-    transaction_id: int,
-    body: TransactionUpdate,
-    db: Session = Depends(get_db)
-):
+def update_transaction(transaction_id: int, body: TransactionUpdate, db: Session = Depends(get_db)):
     tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     from datetime import datetime
+
     def parse_d(s):
         if not s:
             return None
         try:
-            return datetime.strptime(s, '%Y-%m-%d').date()
+            return datetime.strptime(s, "%Y-%m-%d").date()
         except Exception:
             return None
 
