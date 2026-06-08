@@ -2,7 +2,7 @@ import pdfplumber
 import requests
 import time
 import re
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
@@ -32,7 +32,7 @@ def parse_decimal(s: str) -> Optional[Decimal]:
         return None
 
 
-def parse_date(s: str) -> Optional[datetime.date]:
+def parse_date(s: str) -> Optional[date]:
     if not s or s.strip() == '-':
         return None
     s = s.strip()

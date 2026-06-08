@@ -1,4 +1,5 @@
 import { useState, useContext, useRef, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ThemeContext } from '../context/ThemeContext'
@@ -332,6 +333,25 @@ export default function TransactionHistory() {
     }
   }
 
+  // ── Export ───────────────────────────────────────────────────────────────
+
+  const exportToExcel = () => {
+    const rows = sortedTransactions.map(t => ({
+      'Activity Date': formatDate(t.activity_date),
+      'Ticker': t.ticker || '',
+      'Description': t.description || '',
+      'Type': displayCode(t.trans_code),
+      'Quantity': t.quantity != null ? Number(t.quantity) : '',
+      'Price': t.price != null ? Number(t.price) : '',
+      'Amount': t.amount != null ? Number(t.amount) : '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Trades')
+    const datePart = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `trades_history_${datePart}.xlsx`)
+  }
+
   // ── Styles ───────────────────────────────────────────────────────────────
 
   const inputStyle = {
@@ -349,7 +369,7 @@ export default function TransactionHistory() {
       onClick={() => handleSort(field)}
       style={{
         cursor: 'pointer', userSelect: 'none',
-        backgroundColor: sortBy === field ? (theme.isDark ? '#1e293b' : '#f0f0f0') : theme.bgSecondary,
+        backgroundColor: sortBy === field ? theme.border : theme.bgSecondary,
         color: theme.text, padding: '0.6rem 0.75rem',
         textAlign: 'left', whiteSpace: 'nowrap',
         borderBottom: `2px solid ${theme.border}`,
@@ -444,27 +464,36 @@ export default function TransactionHistory() {
         </div>
       </div>
 
-      <div className="date-range" style={{ marginBottom: '1.5rem', alignItems: 'center' }}>
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ padding: '0.5rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: '0.9rem' }} />
+        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ padding: '0.5rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: '0.9rem' }} />
         <input
           type="text" placeholder="Filter by ticker..." value={ticker}
           onChange={(e) => { setTicker(e.target.value); setTickerExact(false) }}
-          style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9rem', width: '200px' }}
+          style={{ padding: '0.5rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: '0.9rem', width: '200px' }}
         />
         <select
           value={transCode} onChange={(e) => setTransCode(e.target.value)}
-          style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.9rem' }}
+          style={{ padding: '0.5rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: '0.9rem' }}
         >
           <option value="">All Types</option>
           {transactionTypes.map(t => <option key={t} value={t}>{displayCode(t)}</option>)}
         </select>
-        <button
-          onClick={handleReset}
-          style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem', marginLeft: 'auto' }}
-        >
-          Reset
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+          <button
+            onClick={exportToExcel}
+            disabled={sortedTransactions.length === 0}
+            style={{ padding: '0.5rem 1rem', background: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: sortedTransactions.length === 0 ? 'not-allowed' : 'pointer', fontSize: '0.9rem', opacity: sortedTransactions.length === 0 ? 0.5 : 1 }}
+          >
+            Export
+          </button>
+          <button
+            onClick={handleReset}
+            style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem' }}
+          >
+            Reset
+          </button>
+        </div>
       </div>
 
       {error && <div className="error">{error.message}</div>}

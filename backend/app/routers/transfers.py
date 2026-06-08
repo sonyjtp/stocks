@@ -26,7 +26,7 @@ def get_transfers(
 
     query = db.query(Transaction).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(['ACH', 'INT', 'GOLD', 'MINT', 'SLIP'])
+        Transaction.trans_code.in_(['ACH', 'INT', 'GOLD', 'MINT', 'SLIP', 'DTAX'])
     )
 
     if start:

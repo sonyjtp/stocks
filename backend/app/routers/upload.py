@@ -2,19 +2,19 @@ from fastapi import APIRouter, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from ..database import get_db
-from ..models import Transaction, UploadLog, UploadError
+from ..models import Transaction, UploadLog, UploadError, UploadDuplicate, UploadTransaction
 from ..schemas import UploadResponse
 from ..parsers.robinhood import parse_robinhood_csv
 from ..parsers.robinhood_pdf import parse_robinhood_pdf
 from ..cache import invalidate_cache
-from ..logger import setup_logger
+from ..logger import get_logger
 from typing import List, Optional
 from pydantic import BaseModel
 import tempfile
 import os
 from datetime import datetime
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["upload"])
 
 class TransactionData(BaseModel):
@@ -186,7 +186,10 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                     )
                 ).first()
                 if not existing:
-                    db.add(Transaction(**trans))
+                    tx_obj = Transaction(**trans)
+                    db.add(tx_obj)
+                    db.flush()
+                    db.add(UploadTransaction(upload_log_id=log.id, transaction_id=tx_obj.id))
                     inserted += 1
                 else:
                     db_duplicates.append(trans)
@@ -207,6 +210,28 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                 quantity=str(t.get('quantity', '')),
                 amount=str(t.get('amount', '')),
                 reason=row['reason'],
+            ))
+
+        # Save duplicate rows so they can be retrieved and re-pasted later
+        for dup in duplicates:
+            db.add(UploadDuplicate(
+                upload_log_id=log.id, dup_type='csv',
+                activity_date=str(dup.get('activity_date', '')),
+                ticker=dup.get('ticker'), description=dup.get('description'),
+                trans_code=dup.get('trans_code'),
+                quantity=str(dup['quantity']) if dup.get('quantity') is not None else '',
+                price=str(dup['price']) if dup.get('price') is not None else '',
+                amount=str(dup.get('amount', '')),
+            ))
+        for dup in db_duplicates:
+            db.add(UploadDuplicate(
+                upload_log_id=log.id, dup_type='db',
+                activity_date=str(dup.get('activity_date', '')),
+                ticker=dup.get('ticker'), description=dup.get('description'),
+                trans_code=dup.get('trans_code'),
+                quantity=str(dup['quantity']) if dup.get('quantity') is not None else '',
+                price=str(dup['price']) if dup.get('price') is not None else '',
+                amount=str(dup.get('amount', '')),
             ))
 
         log.status = 'success'

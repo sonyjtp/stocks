@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useState, useContext } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { ThemeContext } from '../context/ThemeContext'
 import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
 export default function AllTimePerformance() {
+  const { theme } = useContext(ThemeContext)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -93,7 +95,10 @@ export default function AllTimePerformance() {
       style={{
         cursor: 'pointer',
         userSelect: 'none',
-        backgroundColor: sortBy === field ? '#f0f0f0' : 'transparent',
+        padding: '1rem',
+        color: theme.textSecondary,
+        backgroundColor: sortBy === field ? theme.border : theme.bgSecondary,
+        fontWeight: 600,
       }}
     >
       {label} {sortBy === field && (sortOrder === 'asc' ? '↑' : '↓')}
@@ -117,76 +122,79 @@ export default function AllTimePerformance() {
             style={{
               padding: '0.5rem',
               borderRadius: '4px',
-              border: '1px solid #ccc',
+              border: `1px solid ${theme.border}`,
+              background: theme.bg,
+              color: theme.text,
               marginBottom: '1rem',
               width: '200px',
             }}
           />
-          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 260px)', border: '1px solid #ddd', borderRadius: '6px' }}>
-          <table>
-            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-              <tr>
-                <SortableHeader field="ticker" label="Ticker" />
-                <SortableHeader field="shares_bought" label="Bought" />
-                <SortableHeader field="shares_sold" label="Sold" />
-                <SortableHeader field="shares_held" label="Held" />
-                <SortableHeader field="total_spent" label="Spent" />
-                <SortableHeader field="total_received" label="Received" />
-                <SortableHeader field="dividends" label="Dividends" />
-                <SortableHeader field="realized_pnl" label="Realized P&L" />
-                <SortableHeader field="net_pnl" label="Net P&L" />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedReport.map((r) => {
-                const sharesHeld = parseFloat(r.shares_held)
-                const realizedPnl = getRealizedPnl(r)
-                const netPnl = getNetPnl(r)
-                const isDelisted = pricesLoaded && !prices[r.ticker] && sharesHeld > 0.00005
-                return (
-                  <tr key={r.ticker}>
-                    <td>
-                      <span
-                        onClick={() => navigate('/', {
-                          state: {
-                            fromPerformance: true,
-                            ticker: r.ticker,
-                            perfState: { filterTicker, sortBy, sortOrder },
-                          },
-                        })}
-                        style={{ fontWeight: 'bold', cursor: 'pointer', color: '#3498db', textDecoration: 'underline' }}
-                      >
-                        {r.ticker}
-                      </span>
-                    </td>
-                    <td>{parseFloat(r.shares_bought).toFixed(4)}</td>
-                    <td>{parseFloat(r.shares_sold).toFixed(4)}</td>
-                    <td>{(Math.abs(sharesHeld) < 0.00005 ? 0 : sharesHeld).toFixed(4)}</td>
-                    <td>{formatCurrency(r.total_spent)}</td>
-                    <td>{formatCurrency(r.total_received)}</td>
-                    <td>{formatCurrency(r.dividends)}</td>
-                    <td style={{ fontWeight: 'bold', color: realizedPnl >= 0 ? '#27ae60' : '#e74c3c' }}>
-                      {formatCurrency(realizedPnl)}
-                    </td>
-                    <td style={{ fontWeight: 'bold', color: netPnl >= 0 ? '#27ae60' : '#e74c3c' }}>
-                      {formatCurrency(netPnl)}
-                      {isDelisted && (
-                        <span style={{ fontSize: '0.7rem', color: '#7f8c8d', fontWeight: 'normal', marginLeft: '0.35rem' }}>
-                          (delisted)
+          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 260px)', border: `1px solid ${theme.border}`, borderRadius: '6px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr>
+                  <SortableHeader field="ticker" label="Ticker" />
+                  <SortableHeader field="shares_bought" label="Bought" />
+                  <SortableHeader field="shares_sold" label="Sold" />
+                  <SortableHeader field="shares_held" label="Held" />
+                  <SortableHeader field="total_spent" label="Spent" />
+                  <SortableHeader field="total_received" label="Received" />
+                  <SortableHeader field="dividends" label="Dividends" />
+                  <SortableHeader field="realized_pnl" label="Realized P&L" />
+                  <SortableHeader field="net_pnl" label="Net P&L" />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedReport.map((r) => {
+                  const sharesHeld = parseFloat(r.shares_held)
+                  const realizedPnl = getRealizedPnl(r)
+                  const netPnl = getNetPnl(r)
+                  const isDelisted = pricesLoaded && !prices[r.ticker] && sharesHeld > 0.00005
+                  return (
+                    <tr
+                      key={r.ticker}
+                      style={{ borderBottom: `1px solid ${theme.border}` }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.bgSecondary}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                      <td style={{ padding: '1rem', color: theme.text }}>
+                        <span
+                          onClick={() => navigate('/', {
+                            state: { fromPerformance: true, ticker: r.ticker, perfState: { filterTicker, sortBy, sortOrder } },
+                          })}
+                          style={{ fontWeight: 'bold', cursor: 'pointer', color: theme.colors.primary, textDecoration: 'underline' }}
+                        >
+                          {r.ticker}
                         </span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{parseFloat(r.shares_bought).toFixed(4)}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{parseFloat(r.shares_sold).toFixed(4)}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{(Math.abs(sharesHeld) < 0.00005 ? 0 : sharesHeld).toFixed(4)}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{formatCurrency(r.total_spent)}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{formatCurrency(r.total_received)}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{formatCurrency(r.dividends)}</td>
+                      <td style={{ padding: '1rem', fontWeight: 'bold', color: realizedPnl >= 0 ? theme.colors.success : theme.colors.danger }}>
+                        {formatCurrency(realizedPnl)}
+                      </td>
+                      <td style={{ padding: '1rem', fontWeight: 'bold', color: netPnl >= 0 ? theme.colors.success : theme.colors.danger }}>
+                        {formatCurrency(netPnl)}
+                        {isDelisted && (
+                          <span style={{ fontSize: '0.7rem', color: theme.textSecondary, fontWeight: 'normal', marginLeft: '0.35rem' }}>
+                            (delisted)
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </>
       )}
 
       {!isLoading && report.length === 0 && (
-        <p style={{ textAlign: 'center', color: '#7f8c8d', marginTop: '2rem' }}>No data available. Upload a CSV to get started.</p>
+        <p style={{ textAlign: 'center', color: theme.textSecondary, marginTop: '2rem' }}>No data available. Upload a CSV to get started.</p>
       )}
     </div>
   )

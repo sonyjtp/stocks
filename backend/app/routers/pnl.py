@@ -7,9 +7,9 @@ from ..database import get_db
 from ..models import Transaction
 from ..schemas import PnLSummary
 from ..cache import get_cached, set_cached
-from ..logger import setup_logger
+from ..logger import get_logger
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["pnl"])
 
 @router.get("/report/pnl", response_model=PnLSummary)

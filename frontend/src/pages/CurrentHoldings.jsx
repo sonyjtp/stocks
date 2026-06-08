@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useState, useContext } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { ThemeContext } from '../context/ThemeContext'
 import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
 export default function CurrentHoldings() {
+  const { theme } = useContext(ThemeContext)
   const navigate = useNavigate()
   const location = useLocation()
   const [filterTicker, setFilterTicker] = useState(location.state?.filterTicker || '')
@@ -26,27 +28,16 @@ export default function CurrentHoldings() {
     queryFn: async () => {
       if (holdings.length === 0) return {}
       const tickers = holdings.map(h => h.ticker).join(',')
-      console.log('Fetching prices for:', tickers)
       const res = await fetch(`${API_BASE}/prices?tickers=${tickers}`)
-      console.log('Prices response:', res.status)
-      if (!res.ok) {
-        console.error('Failed to fetch prices')
-        return {}
-      }
-      const data = await res.json()
-      console.log('Prices data:', data)
-      return data
+      if (!res.ok) return {}
+      return res.json()
     },
     enabled: holdings.length > 0,
   })
 
   const formatCurrency = (val) => {
     const num = typeof val === 'string' ? parseFloat(val) : val
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(num)
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(num)
   }
 
   const handleSort = (field) => {
@@ -67,27 +58,23 @@ export default function CurrentHoldings() {
 
   const sortedHoldings = [...filteredHoldings].sort((a, b) => {
     let aVal, bVal
-
-    // Handle special case for gainLoss (calculated field)
     if (sortBy === 'gainLoss') {
-      const aPrice = prices[a.ticker]
-      const bPrice = prices[b.ticker]
-      aVal = aPrice ? parseFloat(a.shares_held) * aPrice - parseFloat(a.shares_held) * parseFloat(a.avg_cost) : 0
-      bVal = bPrice ? parseFloat(b.shares_held) * bPrice - parseFloat(b.shares_held) * parseFloat(b.avg_cost) : 0
+      aVal = prices[a.ticker] ? parseFloat(a.shares_held) * prices[a.ticker] - parseFloat(a.shares_held) * parseFloat(a.avg_cost) : 0
+      bVal = prices[b.ticker] ? parseFloat(b.shares_held) * prices[b.ticker] - parseFloat(b.shares_held) * parseFloat(b.avg_cost) : 0
     } else {
-      aVal = a[sortBy]
-      bVal = b[sortBy]
-
-      if (typeof aVal === 'string') {
-        aVal = aVal.toLowerCase()
-        bVal = bVal.toLowerCase()
-      }
+      aVal = typeof a[sortBy] === 'string' ? a[sortBy].toLowerCase() : a[sortBy]
+      bVal = typeof b[sortBy] === 'string' ? b[sortBy].toLowerCase() : b[sortBy]
     }
-
     if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1
     if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1
     return 0
   })
+
+  const totalGainLoss = filteredHoldings.reduce((sum, h) => {
+    const currentPrice = prices[h.ticker]
+    if (!currentPrice) return sum
+    return sum + parseFloat(h.shares_held) * currentPrice - parseFloat(h.shares_held) * parseFloat(h.avg_cost)
+  }, 0)
 
   const SortableHeader = ({ field, label }) => (
     <th
@@ -95,7 +82,10 @@ export default function CurrentHoldings() {
       style={{
         cursor: 'pointer',
         userSelect: 'none',
-        backgroundColor: sortBy === field ? '#f0f0f0' : 'transparent',
+        padding: '1rem',
+        color: theme.textSecondary,
+        backgroundColor: sortBy === field ? theme.border : theme.bgSecondary,
+        fontWeight: 600,
       }}
     >
       {label} {sortBy === field && (sortOrder === 'asc' ? '↑' : '↓')}
@@ -104,7 +94,7 @@ export default function CurrentHoldings() {
 
   return (
     <div>
-      <h2>Current Holdings</h2>
+      <h2 style={{ color: theme.text }}>Current Holdings</h2>
 
       {error && <div className="error">{error.message}</div>}
       {isLoading && <Spinner />}
@@ -120,96 +110,76 @@ export default function CurrentHoldings() {
               style={{
                 padding: '0.5rem',
                 borderRadius: '4px',
-                border: '1px solid #ccc',
+                border: `1px solid ${theme.border}`,
+                background: theme.bg,
+                color: theme.text,
                 width: '200px',
               }}
             />
-            {prices && Object.keys(prices).length > 0 && (
+            {pricesLoaded && (
               <div>
-                <span style={{ fontSize: '0.9rem', color: '#7f8c8d' }}>Total Unrealized P&L: </span>
-                <span style={{
-                  fontWeight: 'bold',
-                  color: (() => {
-                    const totalGainLoss = filteredHoldings.reduce((sum, h) => {
-                      const currentPrice = prices[h.ticker]
-                      if (!currentPrice) return sum
-                      const sharesHeld = parseFloat(h.shares_held)
-                      const avgCost = parseFloat(h.avg_cost)
-                      const gainLoss = sharesHeld * currentPrice - sharesHeld * avgCost
-                      return sum + gainLoss
-                    }, 0)
-                    return totalGainLoss >= 0 ? '#27ae60' : '#e74c3c'
-                  })(),
-                }}>
-                  {(() => {
-                    const totalGainLoss = filteredHoldings.reduce((sum, h) => {
-                      const currentPrice = prices[h.ticker]
-                      if (!currentPrice) return sum
-                      const sharesHeld = parseFloat(h.shares_held)
-                      const avgCost = parseFloat(h.avg_cost)
-                      const gainLoss = sharesHeld * currentPrice - sharesHeld * avgCost
-                      return sum + gainLoss
-                    }, 0)
-                    return formatCurrency(totalGainLoss)
-                  })()}
+                <span style={{ fontSize: '0.9rem', color: theme.textSecondary }}>Total Unrealized P&L: </span>
+                <span style={{ fontWeight: 'bold', color: totalGainLoss >= 0 ? theme.colors.success : theme.colors.danger }}>
+                  {formatCurrency(totalGainLoss)}
                 </span>
               </div>
             )}
           </div>
-          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 260px)', border: '1px solid #ddd', borderRadius: '6px' }}>
-          <table>
-            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-              <tr>
-                <SortableHeader field="ticker" label="Ticker" />
-                <SortableHeader field="shares_held" label="Shares Held" />
-                <SortableHeader field="avg_cost" label="Avg Cost" />
-                <th style={{ cursor: 'default', color: '#7f8c8d' }}>Current Price</th>
-                <th style={{ cursor: 'default', color: '#7f8c8d' }}>Current Value</th>
-                <SortableHeader field="gainLoss" label="Unrealized P&L" />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedHoldings.map((h) => {
-                const currentPrice = prices[h.ticker]
-                const sharesHeld = parseFloat(h.shares_held)
-                const avgCost = parseFloat(h.avg_cost)
-                const currentValue = currentPrice ? sharesHeld * currentPrice : null
-                const costBasis = sharesHeld * avgCost
-                const gainLoss = currentValue ? currentValue - costBasis : null
-                return (
-                  <tr key={h.ticker}>
-                    <td>
-                      <span
-                        onClick={() => navigate('/', {
-                          state: {
-                            fromHoldings: true,
-                            ticker: h.ticker,
-                            holdingsState: { filterTicker, sortBy, sortOrder },
-                          },
-                        })}
-                        style={{ fontWeight: 'bold', cursor: 'pointer', color: '#3498db', textDecoration: 'underline' }}
-                      >
-                        {h.ticker}
-                      </span>
-                    </td>
-                    <td>{sharesHeld.toFixed(4)}</td>
-                    <td>{formatCurrency(avgCost)}</td>
-                    <td>{currentPrice ? formatCurrency(currentPrice) : '-'}</td>
-                    <td>{currentValue ? formatCurrency(currentValue) : '-'}</td>
-                    <td style={{ fontWeight: 'bold', color: gainLoss && gainLoss >= 0 ? '#27ae60' : '#e74c3c' }}>
-                      {gainLoss ? formatCurrency(gainLoss) : '-'}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+
+          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 260px)', border: `1px solid ${theme.border}`, borderRadius: '6px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr>
+                  <SortableHeader field="ticker" label="Ticker" />
+                  <SortableHeader field="shares_held" label="Shares Held" />
+                  <SortableHeader field="avg_cost" label="Avg Cost" />
+                  <th style={{ cursor: 'default', color: theme.textSecondary, padding: '1rem', backgroundColor: theme.bgSecondary, fontWeight: 600 }}>Current Price</th>
+                  <th style={{ cursor: 'default', color: theme.textSecondary, padding: '1rem', backgroundColor: theme.bgSecondary, fontWeight: 600 }}>Current Value</th>
+                  <SortableHeader field="gainLoss" label="Unrealized P&L" />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedHoldings.map((h) => {
+                  const currentPrice = prices[h.ticker]
+                  const sharesHeld = parseFloat(h.shares_held)
+                  const avgCost = parseFloat(h.avg_cost)
+                  const currentValue = currentPrice ? sharesHeld * currentPrice : null
+                  const gainLoss = currentValue ? currentValue - sharesHeld * avgCost : null
+                  return (
+                    <tr
+                      key={h.ticker}
+                      style={{ borderBottom: `1px solid ${theme.border}` }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.bgSecondary}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                      <td style={{ padding: '1rem', color: theme.text }}>
+                        <span
+                          onClick={() => navigate('/', {
+                            state: { fromHoldings: true, ticker: h.ticker, holdingsState: { filterTicker, sortBy, sortOrder } },
+                          })}
+                          style={{ fontWeight: 'bold', cursor: 'pointer', color: theme.colors.primary, textDecoration: 'underline' }}
+                        >
+                          {h.ticker}
+                        </span>
+                      </td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{sharesHeld.toFixed(4)}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{formatCurrency(avgCost)}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{currentPrice ? formatCurrency(currentPrice) : '-'}</td>
+                      <td style={{ padding: '1rem', color: theme.text }}>{currentValue ? formatCurrency(currentValue) : '-'}</td>
+                      <td style={{ padding: '1rem', fontWeight: 'bold', color: gainLoss != null ? (gainLoss >= 0 ? theme.colors.success : theme.colors.danger) : theme.text }}>
+                        {gainLoss != null ? formatCurrency(gainLoss) : '-'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </>
       )}
 
       {!isLoading && holdings.length === 0 && (
-        <p style={{ textAlign: 'center', color: '#7f8c8d', marginTop: '2rem' }}>No data available. Upload a CSV to get started.</p>
+        <p style={{ textAlign: 'center', color: theme.textSecondary, marginTop: '2rem' }}>No data available. Upload a CSV to get started.</p>
       )}
     </div>
   )

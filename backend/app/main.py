@@ -1,11 +1,12 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .routers import upload, transactions, holdings, pnl, transfers, prices, settings
-from .logger import setup_logger
+from .logger import get_logger
 
 # Load environment variables from .env.local (development) or .env (production)
 env_path = Path(__file__).parent.parent.parent / ".env.local"
@@ -14,16 +15,23 @@ if not env_path.exists():
 if env_path.exists():
     load_dotenv(env_path)
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
 logger.info("Database tables initialized")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("=== Stock Trading Tracker API Starting ===")
+    yield
+    logger.info("=== Stock Trading Tracker API Shutting Down ===")
+
 app = FastAPI(
     title=os.getenv("API_TITLE", "Stock Trading Tracker API"),
     docs_url="/api/docs",
-    openapi_url="/api/openapi.json"
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 # CORS middleware - get allowed origins from environment
@@ -47,14 +55,6 @@ app.include_router(pnl.router)
 app.include_router(transfers.router)
 app.include_router(prices.router)
 app.include_router(settings.router)
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("=== Stock Trading Tracker API Starting ===")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("=== Stock Trading Tracker API Shutting Down ===")
 
 @app.get("/")
 def root():

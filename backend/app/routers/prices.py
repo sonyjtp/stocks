@@ -2,9 +2,9 @@ from fastapi import APIRouter, Query
 import yfinance as yf
 import pandas as pd
 from ..cache import get_cached, set_cached
-from ..logger import setup_logger
+from ..logger import get_logger
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["prices"])
 
 @router.get("/prices")

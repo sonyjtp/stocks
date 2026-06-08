@@ -1,8 +1,12 @@
 import csv
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from io import StringIO
 from typing import List, Dict, Any
+
+from backend.app.logger import get_logger
+
+logger = get_logger(__name__)
 
 def parse_amount(amount_str: str) -> Decimal:
     """Convert Robinhood amount format to Decimal. Parentheses = negative."""
@@ -19,10 +23,11 @@ def parse_amount(amount_str: str) -> Decimal:
     try:
         value = Decimal(cleaned)
         return -value if is_negative else value
-    except:
+    except ValueError:
+        logger.warning(f'Could not convert {amount_str} to Decimal.')
         return Decimal('0')
 
-def parse_decimal(value_str: str) -> Decimal:
+def parse_decimal(value_str: str) -> Decimal | None:
     """Convert numeric string to Decimal."""
     if not value_str or value_str.strip() == '-':
         return None
@@ -31,10 +36,11 @@ def parse_decimal(value_str: str) -> Decimal:
         return None
     try:
         return Decimal(cleaned)
-    except:
+    except ValueError :
+        logger.warning(f'Could not convert {value_str} to Decimal.')
         return None
 
-def parse_date(date_str: str) -> datetime.date:
+def parse_date(date_str: str) -> date | None:
     """Parse date string in M/D/YY or M/D/YYYY format."""
     if not date_str or date_str.strip() == '-':
         return None

@@ -19,23 +19,20 @@ class ColoredFormatter(logging.Formatter):
         record.msg = f"{log_color}{record.msg}{self.RESET}"
         return super().format(record)
 
-def setup_logger(name: str) -> logging.Logger:
-    """Setup a logger with colored output."""
+_formatter = ColoredFormatter(
+    fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+def get_logger(name: str) -> logging.Logger:
+    """Set up a logger with colored output."""
     logger = logging.getLogger(name)
 
-    # Only add handler if not already configured
     if not logger.handlers:
         logger.setLevel(logging.DEBUG)
-
-        # Stream handler with color formatter
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.DEBUG)
-
-        formatter = ColoredFormatter(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        handler.setFormatter(formatter)
+        handler.setFormatter(_formatter)
         logger.addHandler(handler)
 
     return logger

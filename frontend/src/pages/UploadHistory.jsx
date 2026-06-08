@@ -11,7 +11,10 @@ export default function UploadHistory() {
   const [expandedLog, setExpandedLog] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
   const [clearingAll, setClearingAll] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(null) // log object to confirm
+  const [confirmDelete, setConfirmDelete] = useState(null) // log object to confirm, or {id:'all'} for clear all
+  const [rollingBack, setRollingBack] = useState(null)
+  const [copyingId, setCopyingId] = useState(null)
+  const [copiedId, setCopiedId] = useState(null)
 
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ['upload-logs'],
@@ -44,6 +47,16 @@ export default function UploadHistory() {
     }
   }
 
+  const rollbackTransactions = async (log) => {
+    setRollingBack(log.id)
+    try {
+      await fetch(`${API_BASE}/upload-logs/${log.id}/transactions`, { method: 'DELETE' })
+      queryClient.invalidateQueries(['upload-logs'])
+    } finally {
+      setRollingBack(null)
+    }
+  }
+
   const clearAll = async () => {
     setConfirmDelete({ id: 'all', filename: 'all upload history' })
   }
@@ -66,6 +79,38 @@ export default function UploadHistory() {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     })
+  }
+
+  const copyDuplicates = async (log) => {
+    setCopyingId(log.id)
+    try {
+      const res = await fetch(`${API_BASE}/upload-logs/${log.id}/duplicates`)
+      if (!res.ok) throw new Error('Failed to fetch duplicates')
+      const dups = await res.json()
+      if (dups.length === 0) return
+
+      const header = 'Activity Date,Instrument,Trans Code,Description,Quantity,Price,Amount'
+      const rows = dups.map(d => {
+        const date = d.activity_date
+          ? (() => {
+              const parts = d.activity_date.split('-')
+              return parts.length === 3 ? `${parseInt(parts[1])}/${parseInt(parts[2])}/${parts[0]}` : d.activity_date
+            })()
+          : ''
+        const qty = d.quantity || ''
+        const price = d.price || ''
+        const amt = d.amount || ''
+        const desc = d.description ? `"${d.description.replace(/"/g, '""')}"` : ''
+        return [date, d.ticker || '', d.trans_code || '', desc, qty, price, amt].join(',')
+      })
+      await navigator.clipboard.writeText([header, ...rows].join('\n'))
+      setCopiedId(log.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch (e) {
+      alert('Failed to copy: ' + e.message)
+    } finally {
+      setCopyingId(null)
+    }
   }
 
   const badge = (text, color) => (
@@ -147,7 +192,9 @@ export default function UploadHistory() {
             <p style={{ margin: '0 0 1.5rem', color: theme.textSecondary, fontSize: '0.95rem' }}>
               {confirmDelete.id === 'all'
                 ? 'Delete all upload history? This cannot be undone.'
-                : <>Delete the upload record for <strong style={{ color: theme.text }}>{confirmDelete.filename}</strong>? This cannot be undone.</>}
+                : confirmDelete.action === 'rollback'
+                  ? <>Delete the <strong style={{ color: theme.text }}>{confirmDelete.rows_inserted} transaction{confirmDelete.rows_inserted !== 1 ? 's' : ''}</strong> imported from <strong style={{ color: theme.text }}>{confirmDelete.filename}</strong> from the database? This cannot be undone.</>
+                  : <>Remove the upload record for <strong style={{ color: theme.text }}>{confirmDelete.filename}</strong> from history? This cannot be undone.</>}
             </p>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
               <button
@@ -163,6 +210,9 @@ export default function UploadHistory() {
                 onClick={() => {
                   if (confirmDelete.id === 'all') {
                     clearAllConfirmed()
+                  } else if (confirmDelete.action === 'rollback') {
+                    rollbackTransactions(confirmDelete)
+                    setConfirmDelete(null)
                   } else {
                     deleteLog(confirmDelete.id)
                     setConfirmDelete(null)
@@ -173,7 +223,7 @@ export default function UploadHistory() {
                   border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
                 }}
               >
-                Delete
+                {confirmDelete.action === 'rollback' ? 'Yes, Delete Transactions' : 'Delete'}
               </button>
             </div>
           </div>
@@ -207,6 +257,23 @@ export default function UploadHistory() {
             </div>
 
             <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {(log.csv_duplicates > 0 || log.db_duplicates > 0) && (
+                <button
+                  onClick={() => log.has_duplicate_rows && copyDuplicates(log)}
+                  disabled={copyingId === log.id || !log.has_duplicate_rows}
+                  title={log.has_duplicate_rows ? 'Copy duplicates as CSV to paste into Upload page' : 'Duplicate rows not available — re-upload the file to capture them'}
+                  style={{
+                    padding: '0.35rem 0.85rem', fontSize: '0.82rem', border: `1px solid ${theme.border}`,
+                    borderRadius: '4px', cursor: !log.has_duplicate_rows || copyingId === log.id ? 'not-allowed' : 'pointer',
+                    background: copiedId === log.id ? theme.colors.success : theme.bg,
+                    color: copiedId === log.id ? 'white' : !log.has_duplicate_rows ? theme.textSecondary : theme.text,
+                    opacity: !log.has_duplicate_rows ? 0.5 : 1,
+                    transition: 'background 0.2s',
+                  }}
+                >
+                  {copyingId === log.id ? '...' : copiedId === log.id ? '✓ Copied!' : 'Copy Duplicates'}
+                </button>
+              )}
               {(log.failed_count > 0 || log.status === 'error') && (
                 <button
                   onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}
@@ -219,18 +286,44 @@ export default function UploadHistory() {
                   {expandedLog === log.id ? 'Hide Details' : 'Show Details'}
                 </button>
               )}
+              {log.rows_inserted > 0 && !log.deletion && (
+                <button
+                  onClick={() => setConfirmDelete({ ...log, action: 'rollback' })}
+                  disabled={rollingBack === log.id || !log.has_inserted_rows}
+                  title={log.has_inserted_rows ? 'Delete imported transactions from the database' : 'Transaction links not available for this upload'}
+                  style={{
+                    padding: '0.35rem 0.85rem', fontSize: '0.82rem', border: 'none',
+                    borderRadius: '4px', cursor: !log.has_inserted_rows || rollingBack === log.id ? 'not-allowed' : 'pointer',
+                    background: theme.colors.danger, color: 'white',
+                    opacity: !log.has_inserted_rows ? 0.5 : 1,
+                  }}
+                >
+                  {rollingBack === log.id ? '...' : 'Delete'}
+                </button>
+              )}
               <button
-                onClick={() => setConfirmDelete(log)}
+                onClick={() => setConfirmDelete({ ...log, action: 'remove' })}
                 disabled={deletingId === log.id}
                 style={{
-                  padding: '0.35rem 0.85rem', fontSize: '0.82rem', border: 'none',
-                  borderRadius: '4px', cursor: 'pointer', background: theme.colors.danger, color: 'white',
+                  padding: '0.35rem 0.85rem', fontSize: '0.82rem',
+                  border: `1px solid ${theme.border}`, borderRadius: '4px',
+                  cursor: 'pointer', background: 'transparent', color: theme.textSecondary,
                 }}
               >
-                {deletingId === log.id ? '...' : 'Delete'}
+                {deletingId === log.id ? '...' : 'Remove'}
               </button>
             </div>
           </div>
+
+          {/* Deletion notice */}
+          {log.deletion && (
+            <div style={{ padding: '0.4rem 1.25rem', background: theme.bg, borderTop: `1px solid ${theme.border}`, fontSize: '0.82rem', color: theme.textSecondary }}>
+              {log.deletion.deleted_count} transaction{log.deletion.deleted_count !== 1 ? 's' : ''} deleted on{' '}
+              <span style={{ color: theme.text }}>
+                {new Date(log.deletion.deleted_at).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            </div>
+          )}
 
           {/* File-level error */}
           {log.status === 'error' && log.error_message && (

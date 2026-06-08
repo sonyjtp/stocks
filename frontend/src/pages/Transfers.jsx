@@ -1,17 +1,19 @@
 import { useState, useContext, useRef, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ThemeContext } from '../context/ThemeContext'
 import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
-const TRANSFER_CODES = ['ACH', 'INT', 'GOLD', 'MINT', 'SLIP']
+const TRANSFER_CODES = ['ACH', 'INT', 'GOLD', 'MINT', 'SLIP', 'DTAX']
 
 const CODE_LABEL = {
   INT: 'Interest',
   GOLD: 'Gold Subscription',
   MINT: 'Savings Interest',
   SLIP: 'Stock Loan Income',
+  DTAX: 'Foreign Tax Withheld',
 }
 
 const displayLabel = (code, amount) => {
@@ -19,7 +21,7 @@ const displayLabel = (code, amount) => {
   return CODE_LABEL[code] || code
 }
 
-const ALL_LABELS = ['Deposit', 'Withdrawal', 'Interest', 'Gold Subscription', 'Savings Interest', 'Stock Loan Income']
+const ALL_LABELS = ['Deposit', 'Withdrawal', 'Interest', 'Gold Subscription', 'Savings Interest', 'Stock Loan Income', 'Foreign Tax Withheld']
 
 const EMPTY_FORM = { activity_date: '', description: '', trans_code: 'ACH', amount: '' }
 
@@ -197,13 +199,34 @@ export default function Transfers() {
     finally { setDeleting(null) }
   }
 
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  const exportToExcel = () => {
+    const rows = sorted.map(t => {
+      const isIncome = t.trans_code === 'MINT' || t.trans_code === 'SLIP'
+      const amt = isIncome ? Math.abs(parseFloat(t.amount)) : parseFloat(t.amount)
+      return {
+        'Activity Date': formatDate(t.activity_date),
+        'Type': displayLabel(t.trans_code, t.amount),
+        'Ticker': t.ticker || '',
+        'Description': t.description || '',
+        'Amount': amt,
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Transfers')
+    const datePart = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `transfers_fees_${datePart}.xlsx`)
+  }
+
   // ── Styles ────────────────────────────────────────────────────────────────
 
   const inputStyle = { padding: '0.5rem 0.75rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: '0.9rem', width: '100%', boxSizing: 'border-box' }
   const cellInput = { padding: '0.35rem 0.5rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text, fontSize: '0.82rem', width: '100%', boxSizing: 'border-box' }
 
   const Th = ({ field, label, align = 'left' }) => (
-    <th onClick={() => handleSort(field)} style={{ cursor: 'pointer', userSelect: 'none', padding: '0.6rem 0.75rem', textAlign: align, whiteSpace: 'nowrap', color: theme.text, background: sortBy === field ? (theme.isDark ? '#1e293b' : '#f0f0f0') : theme.bgSecondary, borderBottom: `2px solid ${theme.border}` }}>
+    <th onClick={() => handleSort(field)} style={{ cursor: 'pointer', userSelect: 'none', padding: '0.6rem 0.75rem', textAlign: align, whiteSpace: 'nowrap', color: theme.text, background: sortBy === field ? theme.border : theme.bgSecondary, borderBottom: `2px solid ${theme.border}` }}>
       {label} {sortBy === field && (sortOrder === 'asc' ? '↑' : '↓')}
     </th>
   )
@@ -248,9 +271,18 @@ export default function Transfers() {
           <option value="">All Types</option>
           {ALL_LABELS.map(l => <option key={l} value={l}>{l}</option>)}
         </select>
-        <button onClick={() => { setStartDate(''); setEndDate(''); setTypeFilter('') }} style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem', marginLeft: 'auto' }}>
-          Reset
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+          <button
+            onClick={exportToExcel}
+            disabled={sorted.length === 0}
+            style={{ padding: '0.5rem 1rem', background: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: sorted.length === 0 ? 'not-allowed' : 'pointer', fontSize: '0.9rem', opacity: sorted.length === 0 ? 0.5 : 1 }}
+          >
+            Export
+          </button>
+          <button onClick={() => { setStartDate(''); setEndDate(''); setTypeFilter('') }} style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem' }}>
+            Reset
+          </button>
+        </div>
       </div>
 
       {(isLoading || sumLoading) && <Spinner />}

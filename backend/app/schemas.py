@@ -3,8 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-class TransactionCreate(BaseModel):
-    broker: str
+class TransactionBase(BaseModel):
     activity_date: date
     process_date: Optional[date] = None
     settle_date: Optional[date] = None
@@ -14,6 +13,9 @@ class TransactionCreate(BaseModel):
     quantity: Optional[Decimal] = None
     price: Optional[Decimal] = None
     amount: Decimal
+
+class TransactionCreate(TransactionBase):
+    broker: str
 
 class TransactionResponse(TransactionCreate):
     id: int
@@ -55,14 +57,8 @@ class TransfersSummary(BaseModel):
     interest_earned: Decimal
     fees_paid: Decimal
 
-class DuplicateTransaction(BaseModel):
-    activity_date: date
-    ticker: Optional[str]
-    description: str
-    trans_code: str
-    quantity: Optional[Decimal]
-    price: Optional[Decimal]
-    amount: Decimal
+class DuplicateTransaction(TransactionBase):
+    pass
 
 class UploadResponse(BaseModel):
     message: str
