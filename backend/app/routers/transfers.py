@@ -26,7 +26,7 @@ def get_transfers(
 
     query = db.query(Transaction).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(['ACH', 'INT', 'GOLD', 'MINT'])
+        Transaction.trans_code.in_(['ACH', 'INT', 'GOLD', 'MINT', 'SLIP'])
     )
 
     if start:
@@ -93,21 +93,32 @@ def get_transfers_summary(
     ach_withdrawals = ach_withdrawals.scalar() or Decimal('0')
     ach_withdrawals = -ach_withdrawals  # Convert negative to positive
 
-    # Interest earned
-    interest = db.query(func.sum(Transaction.amount)).filter(
+    # Interest earned: INT (positive) + MINT/SLIP (stored negative by Robinhood, negate to get true credit)
+    int_sum = db.query(func.sum(Transaction.amount)).filter(
         Transaction.broker == broker,
         Transaction.trans_code == 'INT'
     )
     if start:
-        interest = interest.filter(Transaction.activity_date >= start)
+        int_sum = int_sum.filter(Transaction.activity_date >= start)
     if end:
-        interest = interest.filter(Transaction.activity_date <= end)
-    interest = interest.scalar() or Decimal('0')
+        int_sum = int_sum.filter(Transaction.activity_date <= end)
+    int_sum = int_sum.scalar() or Decimal('0')
 
-    # Fees paid (GOLD + MINT, which are negative)
+    mint_slip_sum = db.query(func.sum(Transaction.amount)).filter(
+        Transaction.broker == broker,
+        Transaction.trans_code.in_(['MINT', 'SLIP'])
+    )
+    if start:
+        mint_slip_sum = mint_slip_sum.filter(Transaction.activity_date >= start)
+    if end:
+        mint_slip_sum = mint_slip_sum.filter(Transaction.activity_date <= end)
+    mint_slip_sum = mint_slip_sum.scalar() or Decimal('0')
+    interest = int_sum + abs(mint_slip_sum)
+
+    # Fees paid: GOLD only (negative amounts)
     fees = db.query(func.sum(Transaction.amount)).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(['GOLD', 'MINT'])
+        Transaction.trans_code == 'GOLD'
     )
     if start:
         fees = fees.filter(Transaction.activity_date >= start)

@@ -60,7 +60,7 @@ function AppContent() {
             <li><Link to="/holdings" style={{ color: theme.text, textDecoration: 'none' }}>Holdings</Link></li>
             <li><Link to="/performance" style={{ color: theme.text, textDecoration: 'none' }}>Performance</Link></li>
             <li><Link to="/pnl" style={{ color: theme.text, textDecoration: 'none' }}>P&L</Link></li>
-            <li><Link to="/" style={{ color: theme.text, textDecoration: 'none' }}>Transactions</Link></li>
+            <li><Link to="/" style={{ color: theme.text, textDecoration: 'none' }}>Trades History</Link></li>
             <li><Link to="/transfers" style={{ color: theme.text, textDecoration: 'none' }}>Transfers</Link></li>
             <li><Link to="/upload" style={{ color: theme.text, textDecoration: 'none' }}>Upload</Link></li>
             <li><Link to="/settings" style={{ color: theme.text, textDecoration: 'none' }}>Settings</Link></li>

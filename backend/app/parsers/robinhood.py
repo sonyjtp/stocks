@@ -48,30 +48,38 @@ def parse_date(date_str: str) -> datetime.date:
     except:
         return None
 
+def _col(row: dict, *keys: str, default: str = '') -> str:
+    """Return the value of the first matching column name found in the row."""
+    for key in keys:
+        if key in row and row[key] is not None:
+            return row[key]
+    return default
+
 def parse_robinhood_csv(csv_content: str) -> List[Dict[str, Any]]:
     """
     Parse Robinhood CSV export and return list of transaction dicts.
-    Handles multi-line CSV rows (CUSIP descriptions).
+    Accepts both the standard Robinhood export column names and common
+    alternate names (e.g. Type/Ticker/Total instead of Trans Code/Instrument/Amount).
     """
     f = StringIO(csv_content)
     reader = csv.DictReader(f)
     transactions = []
 
     for row in reader:
-        if not row.get('Activity Date'):
+        if not _col(row, 'Activity Date'):
             continue
 
         trans = {
             'broker': 'robinhood',
-            'activity_date': parse_date(row.get('Activity Date', '')),
-            'process_date': parse_date(row.get('Process Date', '')),
-            'settle_date': parse_date(row.get('Settle Date', '')),
-            'ticker': row.get('Instrument', '').strip() or None,
-            'description': row.get('Description', '').strip(),
-            'trans_code': row.get('Trans Code', '').strip(),
-            'quantity': parse_decimal(row.get('Quantity', '')),
-            'price': parse_decimal(row.get('Price', '')),
-            'amount': parse_amount(row.get('Amount', '0')),
+            'activity_date': parse_date(_col(row, 'Activity Date')),
+            'process_date': parse_date(_col(row, 'Process Date')),
+            'settle_date': parse_date(_col(row, 'Settle Date')),
+            'ticker': _col(row, 'Instrument', 'Ticker').strip() or None,
+            'description': _col(row, 'Description').strip(),
+            'trans_code': _col(row, 'Trans Code', 'Type').strip(),
+            'quantity': parse_decimal(_col(row, 'Quantity')),
+            'price': parse_decimal(_col(row, 'Price')),
+            'amount': parse_amount(_col(row, 'Amount', 'Total') or '0'),
         }
         transactions.append(trans)
 

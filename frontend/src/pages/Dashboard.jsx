@@ -166,8 +166,8 @@ export default function Dashboard() {
           <div style={{ background: theme.bgSecondary, padding: '1.5rem', borderRadius: '8px', boxShadow: theme.shadow }}>
             <h2 style={{ marginTop: 0, color: theme.text }}>Volatility Analysis</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-              <MetricBox theme={theme} label="Best Day" value={`$${volatilityData.bestDay.toFixed(2)}`} />
-              <MetricBox theme={theme} label="Worst Day" value={`$${volatilityData.worstDay.toFixed(2)}`} />
+              <MetricBox theme={theme} label="Best Day" value={`$${volatilityData.bestDay.toFixed(2)}`} subtitle={volatilityData.bestDayDate} />
+              <MetricBox theme={theme} label="Worst Day" value={`$${volatilityData.worstDay.toFixed(2)}`} subtitle={volatilityData.worstDayDate} />
               <MetricBox theme={theme} label="Largest Drawdown" value={`$${volatilityData.largestDrawdown.toFixed(2)}`} />
               <MetricBox theme={theme} label="Transaction Count" value={transactions.length} />
             </div>
@@ -248,7 +248,7 @@ function PerformersTable({ theme, title, data, style }) {
   )
 }
 
-function MetricBox({ theme, label, value }) {
+function MetricBox({ theme, label, value, subtitle }) {
   return (
     <div
       style={{
@@ -264,6 +264,7 @@ function MetricBox({ theme, label, value }) {
     >
       <p style={{ margin: '0 0 0.5rem 0', color: theme.textSecondary, fontSize: '0.9rem' }}>{label}</p>
       <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 'bold', color: theme.colors.primary }}>{value}</p>
+      {subtitle && <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: theme.textSecondary }}>{subtitle}</p>}
     </div>
   )
 }
@@ -372,6 +373,8 @@ function generateCashFlowData(transactions) {
 function calculateVolatility(transactions) {
   let bestDay = 0
   let worstDay = 0
+  let bestDayDate = null
+  let worstDayDate = null
   let maxValue = 0
   let largestDrawdown = 0
   let runningValue = 0
@@ -380,8 +383,8 @@ function calculateVolatility(transactions) {
     const amount = parseFloat(tx.amount) || 0
     runningValue += amount
 
-    if (amount > bestDay) bestDay = amount
-    if (amount < worstDay) worstDay = amount
+    if (amount > bestDay) { bestDay = amount; bestDayDate = tx.activity_date }
+    if (amount < worstDay) { worstDay = amount; worstDayDate = tx.activity_date }
     if (runningValue > maxValue) maxValue = runningValue
     if (runningValue < maxValue) {
       const drawdown = maxValue - runningValue
@@ -389,5 +392,5 @@ function calculateVolatility(transactions) {
     }
   })
 
-  return { bestDay, worstDay, largestDrawdown }
+  return { bestDay, worstDay, bestDayDate, worstDayDate, largestDrawdown }
 }

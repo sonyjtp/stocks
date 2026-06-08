@@ -30,7 +30,7 @@ def get_transactions(
 
     query = db.query(Transaction).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(['Buy', 'Sell', 'CDIV'])
+        Transaction.trans_code.in_(['Buy', 'Sell', 'CDIV', 'CONV', 'SPL'])
     )
 
     if start:
@@ -73,6 +73,16 @@ class TransactionUpdate(BaseModel):
     quantity: Optional[float] = None
     price: Optional[float] = None
     amount: float
+
+
+@router.delete("/transactions/{transaction_id}", status_code=204)
+def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
+    tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    db.delete(tx)
+    db.commit()
+    invalidate_cache()
 
 
 @router.put("/transactions/{transaction_id}", response_model=TransactionResponse)

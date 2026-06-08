@@ -32,6 +32,98 @@ class TransactionData(BaseModel):
 class UploadDuplicatesRequest(BaseModel):
     transactions: List[TransactionData]
 
+@router.post("/validate")
+async def validate_upload(file: UploadFile = File(...)):
+    """Parse a file and return validation errors without saving anything."""
+    try:
+        content = await file.read()
+        file_ext = file.filename.lower().split('.')[-1]
+
+        if file_ext == 'pdf':
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            try:
+                transactions = parse_robinhood_pdf(tmp_path)
+            finally:
+                os.unlink(tmp_path)
+        elif file_ext == 'csv':
+            csv_text = content.decode('utf-8-sig')  # utf-8-sig strips BOM if present
+            transactions = parse_robinhood_csv(csv_text)
+        else:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
+
+        if len(transactions) == 0 and len(content) > 0:
+            return {
+                'filename': file.filename,
+                'total_rows': 0,
+                'error_count': 1,
+                'errors': [{
+                    'row': '—', 'date': '', 'ticker': '', 'description': '',
+                    'trans_code': '', 'quantity': '', 'price': '', 'amount': '',
+                    'errors': ['No rows could be parsed. Verify this is a valid Robinhood CSV with the expected column headers (Activity Date, Instrument, Trans Code, etc.)'],
+                }],
+            }
+
+        errors = []
+        seen = set()
+
+        for i, trans in enumerate(transactions):
+            row_errors = []
+            row_num = i + 2  # +1 for 1-index, +1 for header
+
+            if not trans.get('activity_date'):
+                row_errors.append("Missing or invalid date")
+
+            code = trans.get('trans_code', '').strip()
+            if not code:
+                row_errors.append("Missing transaction type")
+
+            if code in ('Buy', 'Sell'):
+                if not trans.get('ticker'):
+                    row_errors.append("Buy/Sell is missing a ticker symbol")
+                if trans.get('quantity') is None:
+                    row_errors.append("Buy/Sell is missing quantity")
+                amt = float(trans.get('amount') or 0)
+                if code == 'Buy' and amt > 0:
+                    row_errors.append(f"Buy amount is positive (${amt:,.2f}); expected negative")
+                if code == 'Sell' and amt < 0:
+                    row_errors.append(f"Sell amount is negative (${amt:,.2f}); expected positive")
+
+            trans_key = (
+                str(trans.get('activity_date')), code,
+                str(trans.get('ticker')), str(trans.get('quantity')), str(trans.get('amount')),
+            )
+            if trans_key in seen:
+                row_errors.append("Duplicate row within this file")
+            seen.add(trans_key)
+
+            if row_errors:
+                errors.append({
+                    'row': row_num,
+                    'date': str(trans.get('activity_date') or ''),
+                    'ticker': trans.get('ticker') or '',
+                    'description': trans.get('description') or '',
+                    'trans_code': code,
+                    'quantity': str(trans.get('quantity') or ''),
+                    'price': str(trans.get('price') or ''),
+                    'amount': str(trans.get('amount') or ''),
+                    'errors': row_errors,
+                })
+
+        return {
+            'filename': file.filename,
+            'total_rows': len(transactions),
+            'error_count': len(errors),
+            'errors': errors,
+        }
+
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Upload and parse Robinhood CSV or PDF file."""
@@ -55,7 +147,7 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
             finally:
                 os.unlink(tmp_path)
         elif file_ext == 'csv':
-            csv_text = content.decode('utf-8')
+            csv_text = content.decode('utf-8-sig')  # utf-8-sig strips BOM if present
             transactions = parse_robinhood_csv(csv_text)
         else:
             raise ValueError(f"Unsupported file type: {file_ext}. Please upload a CSV or PDF file.")

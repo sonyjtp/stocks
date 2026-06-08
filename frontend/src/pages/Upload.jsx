@@ -15,6 +15,8 @@ export default function Upload() {
   const [selectedDuplicates, setSelectedDuplicates] = useState({}) // fileIndex -> Set of dup indexes
   const [uploadingDups, setUploadingDups] = useState({})
   const [expandedDups, setExpandedDups] = useState({}) // fileIndex -> bool
+  const [validating, setValidating] = useState(false)
+  const [validateModal, setValidateModal] = useState(null) // null or { filename, total_rows, error_count, errors }
 
   const formatCurrency = (val) => {
     const num = typeof val === 'string' ? parseFloat(val) : val
@@ -153,6 +155,51 @@ export default function Upload() {
     }
   }
 
+  const handleValidate = async () => {
+    const filesToValidate = [...files]
+    if (textInput.trim()) {
+      const blob = new Blob([textInput], { type: 'text/csv' })
+      filesToValidate.push(new File([blob], 'pasted-transactions.csv', { type: 'text/csv' }))
+    }
+    if (filesToValidate.length === 0) return
+
+    setValidating(true)
+    // Validate each file and merge results
+    const allErrors = []
+    let totalRows = 0
+    let firstName = filesToValidate[0].name
+
+    for (const file of filesToValidate) {
+      const formData = new FormData()
+      formData.append('file', file)
+      try {
+        const res = await fetch(`${API_BASE}/validate`, { method: 'POST', body: formData })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.detail || 'Validation failed')
+        totalRows += data.total_rows
+        // Prefix row errors with filename if multiple files
+        const prefix = filesToValidate.length > 1 ? `[${file.name}] ` : ''
+        for (const e of data.errors) {
+          allErrors.push({ ...e, filePrefix: prefix })
+        }
+      } catch (err) {
+        allErrors.push({
+          row: '—', date: '', ticker: '', description: '', trans_code: '', quantity: '', price: '', amount: '',
+          errors: [`Could not validate: ${err.message}`],
+          filePrefix: filesToValidate.length > 1 ? `[${file.name}] ` : '',
+        })
+      }
+    }
+
+    setValidating(false)
+    setValidateModal({
+      filename: filesToValidate.length === 1 ? firstName : `${filesToValidate.length} files`,
+      total_rows: totalRows,
+      error_count: allErrors.length,
+      errors: allErrors,
+    })
+  }
+
   const card = { background: theme.bgSecondary, borderRadius: '8px', boxShadow: theme.shadow, padding: '1.5rem', marginBottom: '1rem' }
   const badge = (text, color) => (
     <span style={{ background: color, color: 'white', borderRadius: '4px', padding: '0.2rem 0.6rem', fontSize: '0.8rem', fontWeight: 'bold' }}>
@@ -271,23 +318,157 @@ export default function Upload() {
         </div>
       </div>
 
-      <button
-        onClick={handleBulkUpload}
-        disabled={uploading || (files.length === 0 && !textInput.trim())}
-        style={{
-          padding: '0.75rem 2rem',
-          backgroundColor: (uploading || (files.length === 0 && !textInput.trim())) ? theme.colors.neutral : theme.colors.primary,
-          color: 'white',
-          border: 'none',
-          borderRadius: '6px',
-          cursor: uploading ? 'not-allowed' : 'pointer',
-          fontSize: '1rem',
-          fontWeight: 'bold',
-          marginBottom: '2rem',
-        }}
-      >
-        {uploading ? `Uploading... (${results.filter(r => r.status === STATUS.SUCCESS || r.status === STATUS.ERROR).length}/${results.length})` : `Upload ${files.length > 1 ? `${files.length} Files` : 'File'}`}
-      </button>
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+        <button
+          onClick={handleValidate}
+          disabled={validating || uploading || (files.length === 0 && !textInput.trim())}
+          style={{
+            padding: '0.75rem 2rem',
+            backgroundColor: (validating || uploading || (files.length === 0 && !textInput.trim())) ? theme.colors.neutral : theme.colors.warning,
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: (validating || uploading || (files.length === 0 && !textInput.trim())) ? 'not-allowed' : 'pointer',
+            fontSize: '1rem',
+            fontWeight: 'bold',
+          }}
+        >
+          {validating ? 'Validating...' : 'Validate First'}
+        </button>
+        <button
+          onClick={handleBulkUpload}
+          disabled={uploading || validating || (files.length === 0 && !textInput.trim())}
+          style={{
+            padding: '0.75rem 2rem',
+            backgroundColor: (uploading || validating || (files.length === 0 && !textInput.trim())) ? theme.colors.neutral : theme.colors.primary,
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            fontSize: '1rem',
+            fontWeight: 'bold',
+          }}
+        >
+          {uploading ? `Uploading... (${results.filter(r => r.status === STATUS.SUCCESS || r.status === STATUS.ERROR).length}/${results.length})` : `Upload ${files.length > 1 ? `${files.length} Files` : 'File'}`}
+        </button>
+      </div>
+
+      {/* Validation modal */}
+      {validateModal && (
+        <div
+          onClick={() => setValidateModal(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: theme.bgSecondary, borderRadius: '10px', boxShadow: theme.shadow,
+              width: '90%', maxWidth: '900px', maxHeight: '80vh',
+              display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            }}
+          >
+            {/* Modal header */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '1.25rem 1.5rem', borderBottom: `1px solid ${theme.border}`,
+            }}>
+              <div>
+                <h3 style={{ margin: 0, color: theme.text }}>Validation Results — {validateModal.filename}</h3>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.9rem', color: theme.textSecondary }}>
+                  {validateModal.total_rows} rows parsed
+                  {validateModal.error_count === 0
+                    ? ' — no errors found'
+                    : ` — ${validateModal.error_count} row${validateModal.error_count !== 1 ? 's' : ''} with errors`}
+                </p>
+              </div>
+              <button
+                onClick={() => setValidateModal(null)}
+                style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: theme.textSecondary, lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div style={{ overflowY: 'auto', padding: '1.5rem' }}>
+              {validateModal.error_count === 0 ? (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem',
+                  color: theme.colors.success, gap: '0.5rem',
+                }}>
+                  <div style={{ fontSize: '2.5rem' }}>✓</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>All {validateModal.total_rows} rows look good!</div>
+                  <div style={{ fontSize: '0.9rem', color: theme.textSecondary }}>No validation errors were found. The file is ready to upload.</div>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ background: theme.bg, position: 'sticky', top: 0 }}>
+                      <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', borderBottom: `2px solid ${theme.border}`, color: theme.textSecondary, whiteSpace: 'nowrap' }}>Row</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', borderBottom: `2px solid ${theme.border}`, color: theme.textSecondary, whiteSpace: 'nowrap' }}>Date</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', borderBottom: `2px solid ${theme.border}`, color: theme.textSecondary }}>Ticker</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', borderBottom: `2px solid ${theme.border}`, color: theme.textSecondary }}>Type</th>
+                      <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', borderBottom: `2px solid ${theme.border}`, color: theme.textSecondary }}>Qty</th>
+                      <th style={{ textAlign: 'right', padding: '0.5rem 0.75rem', borderBottom: `2px solid ${theme.border}`, color: theme.textSecondary }}>Amount</th>
+                      <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', borderBottom: `2px solid ${theme.border}`, color: theme.colors.danger }}>Errors</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {validateModal.errors.map((e, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${theme.border}`, background: i % 2 === 0 ? theme.bg : 'transparent' }}>
+                        <td style={{ padding: '0.6rem 0.75rem', color: theme.textSecondary, whiteSpace: 'nowrap' }}>{e.filePrefix}{e.row}</td>
+                        <td style={{ padding: '0.6rem 0.75rem', color: theme.text, whiteSpace: 'nowrap' }}>{e.date || '—'}</td>
+                        <td style={{ padding: '0.6rem 0.75rem', color: theme.text, fontWeight: e.ticker ? 'bold' : 'normal' }}>{e.ticker || '—'}</td>
+                        <td style={{ padding: '0.6rem 0.75rem', color: theme.text }}>{e.trans_code || '—'}</td>
+                        <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', color: theme.text }}>{e.quantity || '—'}</td>
+                        <td style={{ padding: '0.6rem 0.75rem', textAlign: 'right', color: theme.text }}>{e.amount ? formatCurrency(Math.abs(parseFloat(e.amount))) : '—'}</td>
+                        <td style={{ padding: '0.6rem 0.75rem', color: theme.colors.danger }}>
+                          {e.errors.map((msg, j) => (
+                            <div key={j} style={{ marginBottom: j < e.errors.length - 1 ? '0.25rem' : 0 }}>• {msg}</div>
+                          ))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div style={{
+              padding: '1rem 1.5rem', borderTop: `1px solid ${theme.border}`,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem',
+            }}>
+              <span style={{ fontSize: '0.95rem', color: theme.text, fontWeight: '500' }}>
+                Upload this file?
+              </span>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  onClick={() => setValidateModal(null)}
+                  style={{
+                    padding: '0.5rem 1.5rem', background: 'transparent', color: theme.text,
+                    border: `1px solid ${theme.border}`, borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+                  }}
+                >
+                  No, Cancel
+                </button>
+                <button
+                  onClick={() => { setValidateModal(null); handleBulkUpload() }}
+                  style={{
+                    padding: '0.5rem 1.5rem', background: theme.colors.primary, color: 'white',
+                    border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+                  }}
+                >
+                  Yes, Upload
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary banner */}
       {results.length > 0 && results.every(r => r.status !== STATUS.UPLOADING && r.status !== STATUS.PENDING) && (
@@ -392,7 +573,7 @@ export default function Upload() {
                             <td style={{ padding: '0.5rem', color: theme.text }}>{d.ticker || '-'}</td>
                             <td style={{ padding: '0.5rem', color: theme.text }}>{d.trans_code}</td>
                             <td style={{ padding: '0.5rem', textAlign: 'right', color: theme.text }}>{d.quantity ? parseFloat(d.quantity).toFixed(4) : '-'}</td>
-                            <td style={{ padding: '0.5rem', textAlign: 'right', color: parseFloat(d.amount) >= 0 ? theme.colors.success : theme.colors.danger }}>{formatCurrency(d.amount)}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right', color: theme.text }}>{formatCurrency(Math.abs(parseFloat(d.amount)))}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -428,7 +609,7 @@ export default function Upload() {
                             <td style={{ padding: '0.5rem', color: theme.text }}>{d.ticker || '-'}</td>
                             <td style={{ padding: '0.5rem', color: theme.text }}>{d.trans_code}</td>
                             <td style={{ padding: '0.5rem', textAlign: 'right', color: theme.text }}>{d.quantity ? parseFloat(d.quantity).toFixed(4) : '-'}</td>
-                            <td style={{ padding: '0.5rem', textAlign: 'right', color: parseFloat(d.amount) >= 0 ? theme.colors.success : theme.colors.danger }}>{formatCurrency(d.amount)}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right', color: theme.text }}>{formatCurrency(Math.abs(parseFloat(d.amount)))}</td>
                           </tr>
                         ))}
                       </tbody>

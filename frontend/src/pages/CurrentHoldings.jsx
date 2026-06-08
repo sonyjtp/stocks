@@ -1,13 +1,16 @@
 import { useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
 export default function CurrentHoldings() {
-  const [filterTicker, setFilterTicker] = useState('')
-  const [sortBy, setSortBy] = useState('ticker')
-  const [sortOrder, setSortOrder] = useState('asc')
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [filterTicker, setFilterTicker] = useState(location.state?.filterTicker || '')
+  const [sortBy, setSortBy] = useState(location.state?.sortBy || 'ticker')
+  const [sortOrder, setSortOrder] = useState(location.state?.sortOrder || 'asc')
 
   const { data: holdings = [], isLoading, error } = useQuery({
     queryKey: ['consolidated'],
@@ -55,8 +58,10 @@ export default function CurrentHoldings() {
     }
   }
 
+  const pricesLoaded = Object.keys(prices).length > 0
   const filteredHoldings = holdings.filter(h =>
     h.shares_held > 0 &&
+    (!pricesLoaded || prices[h.ticker]) &&
     (!filterTicker || h.ticker.toUpperCase().includes(filterTicker.toUpperCase()))
   )
 
@@ -173,7 +178,20 @@ export default function CurrentHoldings() {
                 const gainLoss = currentValue ? currentValue - costBasis : null
                 return (
                   <tr key={h.ticker}>
-                    <td><strong>{h.ticker}</strong></td>
+                    <td>
+                      <span
+                        onClick={() => navigate('/', {
+                          state: {
+                            fromHoldings: true,
+                            ticker: h.ticker,
+                            holdingsState: { filterTicker, sortBy, sortOrder },
+                          },
+                        })}
+                        style={{ fontWeight: 'bold', cursor: 'pointer', color: '#3498db', textDecoration: 'underline' }}
+                      >
+                        {h.ticker}
+                      </span>
+                    </td>
                     <td>{sharesHeld.toFixed(4)}</td>
                     <td>{formatCurrency(avgCost)}</td>
                     <td>{currentPrice ? formatCurrency(currentPrice) : '-'}</td>

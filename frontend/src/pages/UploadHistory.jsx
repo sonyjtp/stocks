@@ -11,6 +11,7 @@ export default function UploadHistory() {
   const [expandedLog, setExpandedLog] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
   const [clearingAll, setClearingAll] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null) // log object to confirm
 
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ['upload-logs'],
@@ -44,7 +45,11 @@ export default function UploadHistory() {
   }
 
   const clearAll = async () => {
-    if (!window.confirm('Clear all upload history? This cannot be undone.')) return
+    setConfirmDelete({ id: 'all', filename: 'all upload history' })
+  }
+
+  const clearAllConfirmed = async () => {
+    setConfirmDelete(null)
     setClearingAll(true)
     try {
       await fetch(`${API_BASE}/upload-logs`, { method: 'DELETE' })
@@ -128,6 +133,53 @@ export default function UploadHistory() {
         </div>
       )}
 
+      {/* Confirmation modal */}
+      {confirmDelete && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: theme.bgSecondary, borderRadius: '10px', boxShadow: theme.shadow,
+            padding: '2rem', maxWidth: '420px', width: '90%',
+          }}>
+            <h3 style={{ margin: '0 0 0.75rem', color: theme.text }}>Confirm Delete</h3>
+            <p style={{ margin: '0 0 1.5rem', color: theme.textSecondary, fontSize: '0.95rem' }}>
+              {confirmDelete.id === 'all'
+                ? 'Delete all upload history? This cannot be undone.'
+                : <>Delete the upload record for <strong style={{ color: theme.text }}>{confirmDelete.filename}</strong>? This cannot be undone.</>}
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmDelete(null)}
+                style={{
+                  padding: '0.5rem 1.25rem', background: 'transparent', color: theme.text,
+                  border: `1px solid ${theme.border}`, borderRadius: '6px', cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (confirmDelete.id === 'all') {
+                    clearAllConfirmed()
+                  } else {
+                    deleteLog(confirmDelete.id)
+                    setConfirmDelete(null)
+                  }
+                }}
+                style={{
+                  padding: '0.5rem 1.25rem', background: theme.colors.danger, color: 'white',
+                  border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {logs.map(log => (
         <div key={log.id} style={card}>
           {/* Log header row */}
@@ -168,7 +220,7 @@ export default function UploadHistory() {
                 </button>
               )}
               <button
-                onClick={() => deleteLog(log.id)}
+                onClick={() => setConfirmDelete(log)}
                 disabled={deletingId === log.id}
                 style={{
                   padding: '0.35rem 0.85rem', fontSize: '0.82rem', border: 'none',

@@ -4,9 +4,13 @@ import Spinner from '../components/Spinner'
 
 const API_BASE = 'http://localhost:8765/api'
 
+const today = () => new Date().toISOString().split('T')[0]
+
 export default function PnLSummary() {
   const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [endDate, setEndDate] = useState(today())
+
+  const handleReset = () => { setStartDate(''); setEndDate(today()) }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['pnl', startDate, endDate],
@@ -62,18 +66,14 @@ export default function PnLSummary() {
       <h2>P&L Summary</h2>
 
       <div className="date-range" style={{ marginBottom: '1.5rem' }}>
-        <input
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-          placeholder="Start date"
-        />
-        <input
-          type="date"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-          placeholder="End date"
-        />
+        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        <button
+          onClick={handleReset}
+          style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem' }}
+        >
+          Reset
+        </button>
       </div>
 
       {error && <div className="error">{error.message}</div>}

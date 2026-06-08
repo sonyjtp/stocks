@@ -34,12 +34,16 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
     report_items = []
 
     for (ticker,) in tickers:
-        # Get all buy and sell transactions in chronological order (FIFO method)
-        buys = db.query(Transaction.quantity, Transaction.amount, Transaction.activity_date).filter(
+        # All share acquisitions in chronological order:
+        # Buy, CDIV (DRIP reinvestment), SPL/SPR (stock split), SCXL (share recall), CONV (conversion)
+        acquisitions = db.query(
+            Transaction.quantity, Transaction.amount, Transaction.activity_date, Transaction.trans_code
+        ).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == 'Buy',
-            Transaction.quantity.isnot(None)
+            Transaction.trans_code.in_(['Buy', 'CDIV', 'SPL', 'SPR', 'SCXL', 'CONV']),
+            Transaction.quantity.isnot(None),
+            Transaction.quantity > 0
         ).order_by(Transaction.activity_date).all()
 
         sells = db.query(Transaction.quantity, Transaction.activity_date).filter(
@@ -49,31 +53,56 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
             Transaction.quantity.isnot(None)
         ).order_by(Transaction.activity_date).all()
 
-        # Calculate totals (skip if no valid transactions)
-        if not buys:
+        if not acquisitions:
             continue
 
-        bought = sum(b.quantity or 0 for b in buys)
-        sold = sum(s.quantity or 0 for s in sells)
-        held = bought - sold
-
-        # Build list of buy lots with cost per share
+        # Build buy lots and tally bought shares, handling each acquisition type
+        bought = Decimal('0')
         buy_lots = []
-        for quantity, amount, date in buys:
-            if quantity and quantity > 0:
-                cost_per_share = (-amount) / quantity  # amount is negative
-                buy_lots.append({
-                    'quantity': quantity,
-                    'cost_per_share': cost_per_share,
-                    'remaining': quantity
-                })
+        for quantity, amount, date, trans_code in acquisitions:
+            qty = Decimal(str(quantity))
+            amt = Decimal(str(amount)) if amount else Decimal('0')
+
+            if trans_code == 'Buy':
+                cost_per_share = (-amt) / qty
+                buy_lots.append({'quantity': qty, 'cost_per_share': cost_per_share, 'remaining': qty})
+                bought += qty
+            elif trans_code == 'CDIV':
+                # DRIP: dividend amount (positive) is the cost basis of the reinvested shares
+                cost_per_share = amt / qty
+                buy_lots.append({'quantity': qty, 'cost_per_share': cost_per_share, 'remaining': qty})
+                bought += qty
+            elif trans_code == 'SCXL':
+                # Share recall (e.g. stock-lending close): negative amount = cost to reacquire
+                cost_per_share = abs(amt) / qty if qty else Decimal('0')
+                buy_lots.append({'quantity': qty, 'cost_per_share': cost_per_share, 'remaining': qty})
+                bought += qty
+            elif trans_code == 'CONV':
+                # Broker conversion: original cost unknown, use $0
+                buy_lots.append({'quantity': qty, 'cost_per_share': Decimal('0'), 'remaining': qty})
+                bought += qty
+            elif trans_code in ('SPL', 'SPR'):
+                # Stock split: redistribute cost across all lots, no new cash outlay
+                total_before = sum(lot['remaining'] for lot in buy_lots)
+                if total_before > 0:
+                    ratio = (total_before + qty) / total_before
+                    for lot in buy_lots:
+                        lot['quantity'] *= ratio
+                        lot['remaining'] *= ratio
+                        lot['cost_per_share'] /= ratio
+                else:
+                    buy_lots.append({'quantity': qty, 'cost_per_share': Decimal('0'), 'remaining': qty})
+                bought += qty
+
+        sold = sum(Decimal(str(s.quantity)) for s in sells if s.quantity)
+        held = bought - sold
 
         # Process sells using FIFO (oldest purchases first)
         total_cost_of_sold = Decimal('0')
         for sell_qty, date in sells:
             if not sell_qty or sell_qty <= 0:
                 continue
-            remaining = sell_qty
+            remaining = Decimal(str(sell_qty))
             for lot in buy_lots:
                 if remaining <= 0:
                     break
@@ -85,7 +114,7 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
 
         cost_of_sold = total_cost_of_sold
 
-        # Calculate total spent and received
+        # Calculate total spent (cash out-of-pocket for Buy only, not DRIP)
         buy_amount = db.query(func.sum(Transaction.amount)).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
@@ -129,12 +158,6 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
 
         # Include in all-time performance if shares were bought (whether sold or still held)
         if bought > 0:
-            # Total P&L includes both realized (from sold shares) and unrealized (from held shares)
-            # Unrealized P&L = current_value_of_held - cost_basis_of_held
-            # For stocks with no price (delisted), current_value = $0
-            unrealized_pnl = (0 - cost_basis_held) if held > 0 else Decimal('0')
-            total_pnl = realized_pnl + unrealized_pnl
-
             report_items.append({
                 "ticker": ticker,
                 "shares_bought": float(bought),
@@ -143,7 +166,8 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
                 "total_spent": float(total_spent_all),
                 "total_received": float(total_received),
                 "dividends": float(dividends),
-                "realized_pnl": float(total_pnl),
+                "realized_pnl": float(realized_pnl),
+                "cost_basis_held": float(cost_basis_held),
                 "avg_cost": float(avg_cost)
             })
 
