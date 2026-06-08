@@ -443,7 +443,7 @@ function getWorstPerformers(holdings, prices, limit) {
 function generateCashFlowData(transactions) {
   const byMonth = {}
   transactions.forEach(tx => {
-    if (tx.trans_code === 'ACH') {
+    if (tx.trans_code === 'ACH' || tx.trans_code === 'DCF') {
       const date = new Date(tx.activity_date)
       const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       if (!byMonth[month]) byMonth[month] = { deposits: 0, withdrawals: 0 }

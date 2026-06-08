@@ -1,5 +1,5 @@
 import { useContext } from 'react'
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeContext, ThemeProvider } from './context/ThemeContext'
 import Dashboard from './pages/Dashboard'
@@ -56,14 +56,32 @@ function AppContent() {
               padding: 0,
             }}
           >
-            <li><Link to="/dashboard" style={{ color: theme.text, textDecoration: 'none' }}>Dashboard</Link></li>
-            <li><Link to="/holdings" style={{ color: theme.text, textDecoration: 'none' }}>Holdings</Link></li>
-            <li><Link to="/performance" style={{ color: theme.text, textDecoration: 'none' }}>Performance</Link></li>
-            <li><Link to="/pnl" style={{ color: theme.text, textDecoration: 'none' }}>P&L</Link></li>
-            <li><Link to="/" style={{ color: theme.text, textDecoration: 'none' }}>Trades History</Link></li>
-            <li><Link to="/transfers" style={{ color: theme.text, textDecoration: 'none' }}>Transfers</Link></li>
-            <li><Link to="/upload" style={{ color: theme.text, textDecoration: 'none' }}>Upload</Link></li>
-            <li><Link to="/settings" style={{ color: theme.text, textDecoration: 'none' }}>Settings</Link></li>
+            {[
+              { to: '/dashboard', label: 'Dashboard' },
+              { to: '/holdings', label: 'Holdings' },
+              { to: '/performance', label: 'Performance' },
+              { to: '/pnl', label: 'P&L' },
+              { to: '/', label: 'Trades History', end: true },
+              { to: '/transfers', label: 'Transfers' },
+              { to: '/upload', label: 'Upload' },
+              { to: '/settings', label: 'Settings' },
+            ].map(({ to, label, end }) => (
+              <li key={to}>
+                <NavLink
+                  to={to}
+                  end={end}
+                  style={({ isActive }) => ({
+                    color: isActive ? theme.colors.primary : theme.text,
+                    textDecoration: 'none',
+                    fontWeight: isActive ? '600' : '400',
+                    borderBottom: isActive ? `2px solid ${theme.colors.primary}` : '2px solid transparent',
+                    paddingBottom: '4px',
+                  })}
+                >
+                  {label}
+                </NavLink>
+              </li>
+            ))}
             <li>
               <button
                 onClick={() => setIsDark(!isDark)}
