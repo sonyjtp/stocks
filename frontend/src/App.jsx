@@ -6,7 +6,6 @@ import Dashboard from './pages/Dashboard'
 import TransactionHistory from './pages/TransactionHistory'
 import CurrentHoldings from './pages/CurrentHoldings'
 import AllTimePerformance from './pages/AllTimePerformance'
-import PnLSummary from './pages/PnLSummary'
 import Transfers from './pages/Transfers'
 import Upload from './pages/Upload'
 import UploadHistory from './pages/UploadHistory'
@@ -60,7 +59,6 @@ function AppContent() {
               { to: '/dashboard', label: 'Dashboard' },
               { to: '/holdings', label: 'Holdings' },
               { to: '/performance', label: 'Performance' },
-              { to: '/pnl', label: 'P&L' },
               { to: '/', label: 'Trades History', end: true },
               { to: '/transfers', label: 'Transfers' },
               { to: '/upload', label: 'Upload' },
@@ -105,7 +103,6 @@ function AppContent() {
             <Route path="/" element={<TransactionHistory />} />
             <Route path="/holdings" element={<CurrentHoldings />} />
             <Route path="/performance" element={<AllTimePerformance />} />
-            <Route path="/pnl" element={<PnLSummary />} />
             <Route path="/transfers" element={<Transfers />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/upload-history" element={<UploadHistory />} />

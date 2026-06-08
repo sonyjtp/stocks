@@ -15,6 +15,8 @@ export default function Dashboard() {
   const { theme } = useContext(ThemeContext)
   const [activeTab, setActiveTab] = useState('overview')
   const [pnlLimit, setPnlLimit] = useState(5)
+  const [pnlStart, setPnlStart] = useState('')
+  const [pnlEnd, setPnlEnd] = useState(new Date().toISOString().split('T')[0])
 
   const { data: pnlData = null, isLoading: pnlLoading } = useQuery({
     queryKey: ['pnl-summary'],
@@ -23,6 +25,17 @@ export default function Dashboard() {
       if (!res.ok) throw new Error('Failed to load P&L summary')
       return res.json()
     },
+  })
+
+  const { data: pnlTabData = null, isLoading: pnlTabLoading } = useQuery({
+    queryKey: ['pnl-tab', pnlStart, pnlEnd],
+    queryFn: async () => {
+      const params = new URLSearchParams({ broker: 'robinhood', ...(pnlStart && { start: pnlStart }), ...(pnlEnd && { end: pnlEnd }) })
+      const res = await fetch(`${API_BASE}/report/pnl?${params}`)
+      if (!res.ok) throw new Error('Failed to load P&L summary')
+      return res.json()
+    },
+    enabled: activeTab === 'pnl',
   })
 
   const { data: transactions = [], isLoading: txLoading } = useQuery({
@@ -95,7 +108,7 @@ export default function Dashboard() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: `2px solid ${theme.border}` }}>
-        {['overview', 'holdings', 'analytics'].map(tab => (
+        {['overview', 'holdings', 'analytics', 'pnl'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -116,6 +129,7 @@ export default function Dashboard() {
             {tab === 'overview' && '📈 Overview'}
             {tab === 'holdings' && '💼 Holdings'}
             {tab === 'analytics' && '📊 Analytics'}
+            {tab === 'pnl' && '💰 P&L'}
           </button>
         ))}
       </div>
@@ -290,6 +304,75 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Tab 4: P&L */}
+      {activeTab === 'pnl' && (
+        <div>
+          {/* Date filter */}
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+            <input
+              type="date"
+              value={pnlStart}
+              onChange={(e) => setPnlStart(e.target.value)}
+              style={{ padding: '0.5rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text }}
+            />
+            <input
+              type="date"
+              value={pnlEnd}
+              onChange={(e) => setPnlEnd(e.target.value)}
+              style={{ padding: '0.5rem', borderRadius: '4px', border: `1px solid ${theme.border}`, background: theme.bg, color: theme.text }}
+            />
+            <button
+              onClick={() => { setPnlStart(''); setPnlEnd(new Date().toISOString().split('T')[0]) }}
+              style={{ padding: '0.5rem 1rem', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem', marginLeft: 'auto' }}
+            >
+              Reset
+            </button>
+          </div>
+
+          {pnlTabLoading && <Spinner />}
+
+          {pnlTabData && (
+            <div>
+              <PnLPanel theme={theme} title="Sold Shares (Closed Positions)">
+                <PnLRow theme={theme} label="Cost of Sold Shares" value={pnlTabData.cost_of_sold_shares} neutral />
+                <PnLRow theme={theme} label="Proceeds from Sales" value={pnlTabData.total_received} neutral />
+                <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+                  <PnLRow theme={theme} label="Realized P&L" value={pnlTabData.realized_pnl} />
+                </div>
+              </PnLPanel>
+
+              <PnLPanel theme={theme} title="Held Shares (Open Positions)">
+                <PnLRow theme={theme} label="Cost Basis of Held Shares" value={pnlTabData.cost_of_held_shares} neutral />
+                <PnLRow theme={theme} label="Current Value of Held Shares" value={pnlTabData.held_shares_current_value} neutral />
+                <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+                  <PnLRow theme={theme} label="Unrealized P&L" value={pnlTabData.unrealized_pnl} />
+                </div>
+              </PnLPanel>
+
+              <PnLPanel theme={theme} title="P&L Summary">
+                <PnLRow theme={theme} label="Realized P&L" value={pnlTabData.realized_pnl} />
+                <PnLRow theme={theme} label="Unrealized P&L" value={pnlTabData.unrealized_pnl} />
+                <PnLRow theme={theme} label="Dividends" value={pnlTabData.dividends} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                  <span style={{ fontSize: '0.95rem', color: theme.text }}>Fees</span>
+                  <span style={{ fontWeight: 'bold', color: theme.colors.danger }}>
+                    -{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(pnlTabData.fees)}
+                  </span>
+                </div>
+                <div style={{ borderTop: `2px solid ${theme.border}`, paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+                  <PnLRow theme={theme} label="Net P&L" value={pnlTabData.net_pnl} />
+                </div>
+              </PnLPanel>
+
+              <PnLPanel theme={theme} title="Investment Totals">
+                <PnLRow theme={theme} label="Total Invested (All Shares)" value={pnlTabData.total_invested} neutral />
+                <PnLRow theme={theme} label="Total Cost Breakdown" value={pnlTabData.cost_of_sold_shares + pnlTabData.cost_of_held_shares} neutral />
+              </PnLPanel>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -373,6 +456,27 @@ function MetricBox({ theme, label, value, subtitle }) {
       <p style={{ margin: '0 0 0.5rem 0', color: theme.textSecondary, fontSize: '0.9rem' }}>{label}</p>
       <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 'bold', color: theme.colors.primary }}>{value}</p>
       {subtitle && <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: theme.textSecondary }}>{subtitle}</p>}
+    </div>
+  )
+}
+
+function PnLPanel({ theme, title, children }) {
+  return (
+    <div style={{ backgroundColor: theme.bgSecondary, border: `1px solid ${theme.border}`, borderRadius: '6px', padding: '1.25rem', marginBottom: '1.5rem' }}>
+      <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: theme.text }}>{title}</h3>
+      {children}
+    </div>
+  )
+}
+
+function PnLRow({ theme, label, value, neutral = false }) {
+  const num = typeof value === 'string' ? parseFloat(value) : value
+  const color = neutral ? theme.textSecondary : (num >= 0 ? theme.colors.success : theme.colors.danger)
+  const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(num)
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', alignItems: 'center' }}>
+      <span style={{ fontSize: '0.95rem', color: theme.text }}>{label}</span>
+      <span style={{ fontWeight: 'bold', color }}>{formatted}</span>
     </div>
   )
 }
