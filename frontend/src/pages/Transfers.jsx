@@ -83,6 +83,10 @@ export default function Transfers() {
   const sorted = [...filtered].sort((a, b) => {
     let aVal = sortBy === 'type' ? displayLabel(a.trans_code, a.amount) : a[sortBy] ?? ''
     let bVal = sortBy === 'type' ? displayLabel(b.trans_code, b.amount) : b[sortBy] ?? ''
+    if (sortBy === 'amount') {
+      const diff = (parseFloat(aVal) || 0) - (parseFloat(bVal) || 0)
+      return sortOrder === 'asc' ? diff : -diff
+    }
     if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = bVal.toLowerCase() }
     if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1
     if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1

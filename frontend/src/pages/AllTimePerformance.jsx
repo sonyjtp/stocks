@@ -79,6 +79,12 @@ export default function AllTimePerformance() {
     let aVal = sortBy === 'realized_pnl' ? getRealizedPnl(a) : sortBy === 'net_pnl' ? getNetPnl(a) : a[sortBy]
     let bVal = sortBy === 'realized_pnl' ? getRealizedPnl(b) : sortBy === 'net_pnl' ? getNetPnl(b) : b[sortBy]
 
+    const numericFields = ['shares_bought', 'shares_sold', 'shares_held', 'total_spent', 'total_received', 'dividends', 'realized_pnl', 'net_pnl']
+    if (numericFields.includes(sortBy)) {
+      const diff = (parseFloat(aVal) || 0) - (parseFloat(bVal) || 0)
+      return sortOrder === 'asc' ? diff : -diff
+    }
+
     if (typeof aVal === 'string') {
       aVal = aVal.toLowerCase()
       bVal = bVal.toLowerCase()

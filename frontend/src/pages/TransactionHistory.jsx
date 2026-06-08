@@ -154,6 +154,10 @@ export default function TransactionHistory() {
   const sortedTransactions = [...transactions].sort((a, b) => {
     let aVal = a[sortBy] ?? ''
     let bVal = b[sortBy] ?? ''
+    if (['amount', 'price', 'quantity'].includes(sortBy)) {
+      const diff = (parseFloat(aVal) || 0) - (parseFloat(bVal) || 0)
+      return sortOrder === 'asc' ? diff : -diff
+    }
     if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = bVal.toLowerCase() }
     if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1
     if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1
