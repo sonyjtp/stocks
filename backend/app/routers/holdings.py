@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..cache import get_cached, set_cached
+from ..cache import CACHE_TTL_SHORT, get_cached, set_cached
 from ..database import get_db
 from ..logger import get_logger
-from ..models import Transaction
+from ..models import ACQUISITION_CODES, TC, TRADE_CODES, Transaction
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["holdings"])
@@ -30,7 +30,7 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
         .filter(
             Transaction.broker == broker,
             Transaction.ticker.isnot(None),
-            Transaction.trans_code.in_(["Buy", "Sell"]),
+            Transaction.trans_code.in_(TRADE_CODES),
         )
         .distinct()
         .all()
@@ -52,7 +52,7 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
             .filter(
                 Transaction.broker == broker,
                 Transaction.ticker == ticker,
-                Transaction.trans_code.in_(["Buy", "CDIV", "SPL", "SPR", "SCXL", "CONV"]),
+                Transaction.trans_code.in_(ACQUISITION_CODES),
                 Transaction.quantity.isnot(None),
                 Transaction.quantity > 0,
             )
@@ -65,7 +65,7 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
             .filter(
                 Transaction.broker == broker,
                 Transaction.ticker == ticker,
-                Transaction.trans_code == "Sell",
+                Transaction.trans_code == TC.SELL,
                 Transaction.quantity.isnot(None),
             )
             .order_by(Transaction.activity_date)
@@ -82,31 +82,31 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
             qty = Decimal(str(quantity))
             amt = Decimal(str(amount)) if amount else Decimal("0")
 
-            if trans_code == "Buy":
+            if trans_code == TC.BUY:
                 cost_per_share = (-amt) / qty
                 buy_lots.append(
                     {"quantity": qty, "cost_per_share": cost_per_share, "remaining": qty}
                 )
                 bought += qty
-            elif trans_code == "CDIV":
+            elif trans_code == TC.CDIV:
                 # DRIP: dividend amount (positive) is the cost basis of the reinvested shares
                 cost_per_share = amt / qty
                 buy_lots.append(
                     {"quantity": qty, "cost_per_share": cost_per_share, "remaining": qty}
                 )
                 bought += qty
-            elif trans_code == "SCXL":
+            elif trans_code == TC.SCXL:
                 # Share recall (e.g. stock-lending close): negative amount = cost to reacquire
                 cost_per_share = abs(amt) / qty if qty else Decimal("0")
                 buy_lots.append(
                     {"quantity": qty, "cost_per_share": cost_per_share, "remaining": qty}
                 )
                 bought += qty
-            elif trans_code == "CONV":
+            elif trans_code == TC.CONV:
                 # Broker conversion: original cost unknown, use $0
                 buy_lots.append({"quantity": qty, "cost_per_share": Decimal("0"), "remaining": qty})
                 bought += qty
-            elif trans_code in ("SPL", "SPR"):
+            elif trans_code in (TC.SPL, TC.SPR):
                 # Stock split: redistribute cost across all lots, no new cash outlay
                 total_before = sum(lot["remaining"] for lot in buy_lots)
                 if total_before > 0:
@@ -145,13 +145,13 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
         buy_amount = db.query(func.sum(Transaction.amount)).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == "Buy",
+            Transaction.trans_code == TC.BUY,
         ).scalar() or Decimal("0")
 
         sell_amount = db.query(func.sum(Transaction.amount)).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == "Sell",
+            Transaction.trans_code == TC.SELL,
         ).scalar() or Decimal("0")
 
         total_spent_all = -buy_amount
@@ -172,7 +172,7 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
         dividends = db.query(func.sum(Transaction.amount)).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == "CDIV",
+            Transaction.trans_code == TC.CDIV,
         ).scalar() or Decimal("0")
 
         realized_pnl = total_received + dividends - cost_of_sold
@@ -202,7 +202,7 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
 
     # Only cache if we have data (prevent caching empty results from errors)
     if holdings_list:
-        set_cached(cache_key, result, ttl=300)
+        set_cached(cache_key, result, ttl=CACHE_TTL_SHORT)
         logger.info(
             f"Consolidated report: {len(holdings_list)} holdings, "
             f"{len(report_items)} performance items - CACHED"

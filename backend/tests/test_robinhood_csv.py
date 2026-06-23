@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
+from app.models import TransactionCreate
 from app.parsers.robinhood import parse_amount, parse_date, parse_decimal, parse_robinhood_csv
 
 _HEADER = (
@@ -131,31 +132,31 @@ class TestParseRobinhoodCsv:
 
     def test_buy_transaction(self):
         result = parse_robinhood_csv(SAMPLE_CSV)
-        buy = next(t for t in result if t["trans_code"] == "Buy")
-        assert buy["ticker"] == "AAPL"
-        assert buy["quantity"] == Decimal("10")
-        assert buy["price"] == Decimal("150.00")
-        assert buy["amount"] == Decimal("-1500.00")
-        assert buy["activity_date"] == date(2024, 1, 15)
-        assert buy["broker"] == "robinhood"
+        buy = next(t for t in result if t.trans_code == "Buy")
+        assert buy.ticker == "AAPL"
+        assert buy.quantity == Decimal("10")
+        assert buy.price == Decimal("150.00")
+        assert buy.amount == Decimal("-1500.00")
+        assert buy.activity_date == date(2024, 1, 15)
+        assert buy.broker == "robinhood"
 
     def test_sell_transaction(self):
         result = parse_robinhood_csv(SAMPLE_CSV)
-        sell = next(t for t in result if t["trans_code"] == "Sell")
-        assert sell["amount"] == Decimal("800.00")
-        assert sell["quantity"] == Decimal("5")
+        sell = next(t for t in result if t.trans_code == "Sell")
+        assert sell.amount == Decimal("800.00")
+        assert sell.quantity == Decimal("5")
 
     def test_dividend_no_ticker(self):
         result = parse_robinhood_csv(SAMPLE_CSV)
-        div = next(t for t in result if t["trans_code"] == "CDIV")
-        assert div["ticker"] is None
-        assert div["amount"] == Decimal("9.00")
+        div = next(t for t in result if t.trans_code == "CDIV")
+        assert div.ticker is None
+        assert div.amount == Decimal("9.00")
 
     def test_ach_transaction(self):
         result = parse_robinhood_csv(SAMPLE_CSV)
-        ach = next(t for t in result if t["trans_code"] == "ACH")
-        assert ach["ticker"] is None
-        assert ach["amount"] == Decimal("500.00")
+        ach = next(t for t in result if t.trans_code == "ACH")
+        assert ach.ticker is None
+        assert ach.amount == Decimal("500.00")
 
     def test_empty_activity_date_skipped(self):
         result = parse_robinhood_csv(_HEADER + ",,,AAPL,Apple,Buy,1,$100,-$100\n")
@@ -165,7 +166,7 @@ class TestParseRobinhoodCsv:
         result = parse_robinhood_csv(_HEADER)
         assert result == []
 
-    def test_all_required_keys_present(self):
+    def test_all_required_fields_present(self):
         result = parse_robinhood_csv(SAMPLE_CSV)
         required = {
             "broker",
@@ -180,11 +181,12 @@ class TestParseRobinhoodCsv:
             "amount",
         }
         for tx in result:
-            assert required.issubset(tx.keys())
+            assert isinstance(tx, TransactionCreate)
+        assert required.issubset(TransactionCreate.model_fields.keys())
 
     def test_fractional_shares(self):
         row = "8/14/2020,8/14/2020,8/16/2020,AAPL,Apple Inc,Buy,0.021439,$458.97,($9.84)\n"
         csv = _HEADER + row
         result = parse_robinhood_csv(csv)
         assert len(result) == 1
-        assert result[0]["quantity"] == Decimal("0.021439")
+        assert result[0].quantity == Decimal("0.021439")

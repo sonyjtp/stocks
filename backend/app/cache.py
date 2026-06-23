@@ -7,6 +7,9 @@ import redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6380")
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
+CACHE_TTL_SHORT = 300  # 5 min — live/current data
+CACHE_TTL_LONG = 3600  # 1 hour — historical date ranges (won't change)
+
 
 def get_cached(key: str) -> Optional[Any]:
     try:

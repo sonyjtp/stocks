@@ -6,10 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ..cache import get_cached, invalidate_cache, set_cached
+from ..cache import CACHE_TTL_SHORT, get_cached, invalidate_cache, set_cached
 from ..database import get_db
-from ..models import Transaction
-from ..schemas import TransactionResponse
+from ..models import TC, Transaction, TransactionResponse
 
 router = APIRouter(prefix="/api", tags=["transactions"])
 
@@ -32,7 +31,7 @@ def get_transactions(
 
     query = db.query(Transaction).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(["Buy", "Sell", "CDIV", "CONV", "SPL"]),
+        Transaction.trans_code.in_([TC.BUY, TC.SELL, TC.CDIV, TC.CONV, TC.SPL]),
     )
 
     if start:
@@ -46,7 +45,6 @@ def get_transactions(
 
     results = query.order_by(Transaction.activity_date.desc()).all()
 
-    # Cache for 5 minutes
     set_cached(
         cache_key,
         [
@@ -65,6 +63,7 @@ def get_transactions(
             }
             for t in results
         ],
+        ttl=CACHE_TTL_SHORT,
     )
 
     return results
@@ -78,6 +77,19 @@ class TransactionUpdate(BaseModel):
     quantity: Optional[float] = None
     price: Optional[float] = None
     amount: float
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: List[int]
+
+
+@router.delete("/transactions", status_code=204)
+def bulk_delete_transactions(request: BulkDeleteRequest, db: Session = Depends(get_db)):
+    if not request.ids:
+        return
+    db.query(Transaction).filter(Transaction.id.in_(request.ids)).delete(synchronize_session=False)
+    db.commit()
+    invalidate_cache()
 
 
 @router.delete("/transactions/{transaction_id}", status_code=204)

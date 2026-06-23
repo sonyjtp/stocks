@@ -2,9 +2,12 @@ import csv
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import StringIO
-from typing import Any, Dict, List
+from typing import List
+
+from pydantic import ValidationError
 
 from ..logger import get_logger
+from ..models import TransactionCreate
 
 logger = get_logger(__name__)
 
@@ -54,7 +57,8 @@ def parse_date(date_str: str) -> date | None:
             return datetime.strptime(date_str, "%m/%d/%Y").date()
         except ValueError:
             return datetime.strptime(date_str, "%m/%d/%y").date()
-    except Exception:
+    except (ValueError, InvalidOperation):
+        logger.warning(f"Could not convert {date_str} to Date.")
         return None
 
 
@@ -66,32 +70,42 @@ def _col(row: dict, *keys: str, default: str = "") -> str:
     return default
 
 
-def parse_robinhood_csv(csv_content: str) -> List[Dict[str, Any]]:
+def parse_robinhood_csv(csv_content: str) -> List[TransactionCreate]:
     """
-    Parse Robinhood CSV export and return list of transaction dicts.
+    Parse Robinhood CSV export and return list of TransactionCreate objects.
     Accepts both the standard Robinhood export column names and common
     alternate names (e.g. Type/Ticker/Total instead of Trans Code/Instrument/Amount).
+    Rows that fail validation (e.g. unparseable date) are skipped with a warning.
     """
     f = StringIO(csv_content)
     reader = csv.DictReader(f)
     transactions = []
 
     for row in reader:
-        if not _col(row, "Activity Date"):
+        raw_date = _col(row, "Activity Date")
+        if not raw_date:
             continue
 
-        trans = {
-            "broker": "robinhood",
-            "activity_date": parse_date(_col(row, "Activity Date")),
-            "process_date": parse_date(_col(row, "Process Date")),
-            "settle_date": parse_date(_col(row, "Settle Date")),
-            "ticker": _col(row, "Instrument", "Ticker").strip() or None,
-            "description": _col(row, "Description").strip(),
-            "trans_code": _col(row, "Trans Code", "Type").strip(),
-            "quantity": parse_decimal(_col(row, "Quantity")),
-            "price": parse_decimal(_col(row, "Price")),
-            "amount": parse_amount(_col(row, "Amount", "Total") or "0"),
-        }
-        transactions.append(trans)
+        activity_date = parse_date(raw_date)
+        if activity_date is None:
+            logger.warning(f"Skipping row with unparseable date: {raw_date!r}")
+            continue
+
+        try:
+            trans = TransactionCreate(
+                broker="robinhood",
+                activity_date=activity_date,
+                process_date=parse_date(_col(row, "Process Date")),
+                settle_date=parse_date(_col(row, "Settle Date")),
+                ticker=_col(row, "Instrument", "Ticker").strip() or None,
+                description=_col(row, "Description").strip(),
+                trans_code=_col(row, "Trans Code", "Type").strip(),
+                quantity=parse_decimal(_col(row, "Quantity")),
+                price=parse_decimal(_col(row, "Price")),
+                amount=parse_amount(_col(row, "Amount", "Total") or "0"),
+            )
+            transactions.append(trans)
+        except ValidationError as e:
+            logger.warning(f"Skipping malformed CSV row: {e}")
 
     return transactions

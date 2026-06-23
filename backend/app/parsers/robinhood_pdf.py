@@ -6,6 +6,12 @@ from typing import Any, Dict, List, Optional
 
 import pdfplumber
 import requests
+from pydantic import ValidationError
+
+from ..logger import get_logger
+from ..models import TC, TRADE_CODES, TransactionCreate
+
+logger = get_logger(__name__)
 
 # In-process cache so repeated uploads don't re-query the same CUSIPs
 _cusip_cache: Dict[str, Optional[str]] = {}
@@ -156,7 +162,7 @@ def batch_lookup_cusips(cusips: List[str]) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def parse_robinhood_pdf(pdf_path: str) -> List[Dict[str, Any]]:
+def parse_robinhood_pdf(pdf_path: str) -> List[TransactionCreate]:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             full_text = "\n".join((page.extract_text() or "") for page in pdf.pages)
@@ -183,11 +189,16 @@ def parse_robinhood_pdf(pdf_path: str) -> List[Dict[str, Any]]:
             if cusip and not is_real_ticker(tx.get("ticker") or ""):
                 tx["ticker"] = ticker_map.get(cusip)  # None if not found
 
-    # Strip the internal helper field
+    # Strip the internal helper field and convert to Pydantic models
+    result = []
     for tx in transactions:
         tx.pop("_cusip", None)
+        try:
+            result.append(TransactionCreate(**tx))
+        except ValidationError as e:
+            logger.warning(f"Skipping malformed PDF transaction: {e}")
 
-    return transactions
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -305,24 +316,23 @@ def _build_transaction(
     price,
     amount: Decimal,
 ) -> Dict[str, Any]:
-
     # Determine trans_code and sign of amount
     if trans_type == "BOUGHT":
-        trans_code = "Buy"
+        trans_code = TC.BUY
         if amount > 0:
             amount = -amount
         ticker = extract_ticker_from_text(description)
     elif trans_type == "SOLD":
-        trans_code = "Sell"
+        trans_code = TC.SELL
         ticker = extract_ticker_from_text(description)
     elif trans_type == "ACH":
-        trans_code = "ACH"
+        trans_code = TC.ACH
         ticker = None
     else:
         trans_code = trans_type  # GOLD, MINT, etc.
         ticker = None
 
-    cusip = extract_cusip(description) if trans_code in ("Buy", "Sell") else None
+    cusip = extract_cusip(description) if trans_code in TRADE_CODES else None
 
     return {
         "broker": "robinhood",

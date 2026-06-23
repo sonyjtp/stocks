@@ -11,10 +11,18 @@ from sqlalchemy.orm import Session
 from ..cache import invalidate_cache
 from ..database import get_db
 from ..logger import get_logger
-from ..models import Transaction, UploadDuplicate, UploadError, UploadLog, UploadTransaction
+from ..models import (
+    TC,
+    TRADE_CODES,
+    Transaction,
+    UploadDuplicate,
+    UploadError,
+    UploadLog,
+    UploadResponse,
+    UploadTransaction,
+)
 from ..parsers.robinhood import parse_robinhood_csv
 from ..parsers.robinhood_pdf import parse_robinhood_pdf
-from ..schemas import UploadResponse
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["upload"])
@@ -91,30 +99,27 @@ async def validate_upload(file: UploadFile = File(...)):
             row_errors = []
             row_num = i + 2  # +1 for 1-index, +1 for header
 
-            if not trans.get("activity_date"):
-                row_errors.append("Missing or invalid date")
-
-            code = trans.get("trans_code", "").strip()
+            code = trans.trans_code.strip()
             if not code:
                 row_errors.append("Missing transaction type")
 
-            if code in ("Buy", "Sell"):
-                if not trans.get("ticker"):
+            if code in TRADE_CODES:
+                if not trans.ticker:
                     row_errors.append("Buy/Sell is missing a ticker symbol")
-                if trans.get("quantity") is None:
+                if trans.quantity is None:
                     row_errors.append("Buy/Sell is missing quantity")
-                amt = float(trans.get("amount") or 0)
-                if code == "Buy" and amt > 0:
+                amt = float(trans.amount)
+                if code == TC.BUY and amt > 0:
                     row_errors.append(f"Buy amount is positive (${amt:,.2f}); expected negative")
-                if code == "Sell" and amt < 0:
+                if code == TC.SELL and amt < 0:
                     row_errors.append(f"Sell amount is negative (${amt:,.2f}); expected positive")
 
             trans_key = (
-                str(trans.get("activity_date")),
+                str(trans.activity_date),
                 code,
-                str(trans.get("ticker")),
-                str(trans.get("quantity")),
-                str(trans.get("amount")),
+                str(trans.ticker),
+                str(trans.quantity),
+                str(trans.amount),
             )
             if trans_key in seen:
                 row_errors.append("Duplicate row within this file")
@@ -124,13 +129,13 @@ async def validate_upload(file: UploadFile = File(...)):
                 errors.append(
                     {
                         "row": row_num,
-                        "date": str(trans.get("activity_date") or ""),
-                        "ticker": trans.get("ticker") or "",
-                        "description": trans.get("description") or "",
+                        "date": str(trans.activity_date),
+                        "ticker": trans.ticker or "",
+                        "description": trans.description or "",
                         "trans_code": code,
-                        "quantity": str(trans.get("quantity") or ""),
-                        "price": str(trans.get("price") or ""),
-                        "amount": str(trans.get("amount") or ""),
+                        "quantity": str(trans.quantity or ""),
+                        "price": str(trans.price or ""),
+                        "amount": str(trans.amount),
                         "errors": row_errors,
                     }
                 )
@@ -190,12 +195,12 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         unique_transactions = []
         for trans in transactions:
             trans_key = (
-                trans["broker"],
-                trans["activity_date"],
-                trans["trans_code"],
-                trans.get("ticker"),
-                trans.get("quantity"),
-                trans.get("amount"),
+                trans.broker,
+                trans.activity_date,
+                trans.trans_code,
+                trans.ticker,
+                trans.quantity,
+                trans.amount,
             )
             if trans_key in seen:
                 duplicates.append(trans)
@@ -213,18 +218,18 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                     db.query(Transaction)
                     .filter(
                         and_(
-                            Transaction.broker == trans["broker"],
-                            Transaction.activity_date == trans["activity_date"],
-                            Transaction.trans_code == trans["trans_code"],
-                            Transaction.ticker == trans["ticker"],
-                            Transaction.quantity == trans["quantity"],
-                            Transaction.amount == trans["amount"],
+                            Transaction.broker == trans.broker,
+                            Transaction.activity_date == trans.activity_date,
+                            Transaction.trans_code == trans.trans_code,
+                            Transaction.ticker == trans.ticker,
+                            Transaction.quantity == trans.quantity,
+                            Transaction.amount == trans.amount,
                         )
                     )
                     .first()
                 )
                 if not existing:
-                    tx_obj = Transaction(**trans)
+                    tx_obj = Transaction(**trans.model_dump())
                     db.add(tx_obj)
                     db.flush()
                     db.add(UploadTransaction(upload_log_id=log.id, transaction_id=tx_obj.id))
@@ -242,12 +247,12 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
             db.add(
                 UploadError(
                     upload_log_id=log.id,
-                    activity_date=str(t.get("activity_date", "")),
-                    ticker=t.get("ticker"),
-                    description=t.get("description"),
-                    trans_code=t.get("trans_code"),
-                    quantity=str(t.get("quantity", "")),
-                    amount=str(t.get("amount", "")),
+                    activity_date=str(t.activity_date or ""),
+                    ticker=t.ticker,
+                    description=t.description,
+                    trans_code=t.trans_code,
+                    quantity=str(t.quantity or ""),
+                    amount=str(t.amount),
                     reason=row["reason"],
                 )
             )
@@ -258,13 +263,13 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                 UploadDuplicate(
                     upload_log_id=log.id,
                     dup_type="csv",
-                    activity_date=str(dup.get("activity_date", "")),
-                    ticker=dup.get("ticker"),
-                    description=dup.get("description"),
-                    trans_code=dup.get("trans_code"),
-                    quantity=str(dup["quantity"]) if dup.get("quantity") is not None else "",
-                    price=str(dup["price"]) if dup.get("price") is not None else "",
-                    amount=str(dup.get("amount", "")),
+                    activity_date=str(dup.activity_date or ""),
+                    ticker=dup.ticker,
+                    description=dup.description,
+                    trans_code=dup.trans_code,
+                    quantity=str(dup.quantity) if dup.quantity is not None else "",
+                    price=str(dup.price) if dup.price is not None else "",
+                    amount=str(dup.amount),
                 )
             )
         for dup in db_duplicates:
@@ -272,13 +277,13 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                 UploadDuplicate(
                     upload_log_id=log.id,
                     dup_type="db",
-                    activity_date=str(dup.get("activity_date", "")),
-                    ticker=dup.get("ticker"),
-                    description=dup.get("description"),
-                    trans_code=dup.get("trans_code"),
-                    quantity=str(dup["quantity"]) if dup.get("quantity") is not None else "",
-                    price=str(dup["price"]) if dup.get("price") is not None else "",
-                    amount=str(dup.get("amount", "")),
+                    activity_date=str(dup.activity_date or ""),
+                    ticker=dup.ticker,
+                    description=dup.description,
+                    trans_code=dup.trans_code,
+                    quantity=str(dup.quantity) if dup.quantity is not None else "",
+                    price=str(dup.price) if dup.price is not None else "",
+                    amount=str(dup.amount),
                 )
             )
 
@@ -294,6 +299,7 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
             f"{len(db_duplicates)} DB dups, {len(failed_rows)} failed"
         )
 
+        _exclude = {"broker"}
         return {
             "message": f"Successfully uploaded {inserted} transactions"
             + (
@@ -302,8 +308,8 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                 else ""
             ),
             "rows_inserted": inserted,
-            "duplicates": duplicates,
-            "db_duplicates": db_duplicates,
+            "duplicates": [t.model_dump(exclude=_exclude) for t in duplicates],
+            "db_duplicates": [t.model_dump(exclude=_exclude) for t in db_duplicates],
         }
 
     except Exception as e:

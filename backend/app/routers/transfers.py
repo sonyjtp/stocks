@@ -6,10 +6,17 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..cache import get_cached, set_cached
+from ..cache import CACHE_TTL_SHORT, get_cached, set_cached
 from ..database import get_db
-from ..models import Transaction
-from ..schemas import TransactionResponse, TransfersSummary
+from ..models import (
+    DEPOSIT_CODES,
+    INTEREST_CODES,
+    TC,
+    TRANSFER_CODES,
+    Transaction,
+    TransactionResponse,
+    TransfersSummary,
+)
 
 router = APIRouter(prefix="/api", tags=["transfers"])
 
@@ -29,7 +36,7 @@ def get_transfers(
 
     query = db.query(Transaction).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(["ACH", "DCF", "INT", "GOLD", "MINT", "SLIP", "DTAX"]),
+        Transaction.trans_code.in_(TRANSFER_CODES),
     )
 
     if start:
@@ -57,7 +64,7 @@ def get_transfers(
             }
             for t in results
         ],
-        ttl=300,
+        ttl=CACHE_TTL_SHORT,
     )
 
     return results
@@ -79,7 +86,7 @@ def get_transfers_summary(
     # ACH / DCF deposits (positive amounts)
     ach_deposits = db.query(func.sum(Transaction.amount)).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(["ACH", "DCF"]),
+        Transaction.trans_code.in_(DEPOSIT_CODES),
         Transaction.amount > 0,
     )
     if start:
@@ -91,7 +98,7 @@ def get_transfers_summary(
     # ACH / DCF withdrawals (negative amounts)
     ach_withdrawals = db.query(func.sum(Transaction.amount)).filter(
         Transaction.broker == broker,
-        Transaction.trans_code.in_(["ACH", "DCF"]),
+        Transaction.trans_code.in_(DEPOSIT_CODES),
         Transaction.amount < 0,
     )
     if start:
@@ -103,7 +110,7 @@ def get_transfers_summary(
 
     # Interest earned: INT (positive) + MINT/SLIP (Robinhood stores negative, negate to get credit)
     int_sum = db.query(func.sum(Transaction.amount)).filter(
-        Transaction.broker == broker, Transaction.trans_code == "INT"
+        Transaction.broker == broker, Transaction.trans_code == TC.INT
     )
     if start:
         int_sum = int_sum.filter(Transaction.activity_date >= start)
@@ -112,7 +119,7 @@ def get_transfers_summary(
     int_sum = int_sum.scalar() or Decimal("0")
 
     mint_slip_sum = db.query(func.sum(Transaction.amount)).filter(
-        Transaction.broker == broker, Transaction.trans_code.in_(["MINT", "SLIP"])
+        Transaction.broker == broker, Transaction.trans_code.in_(INTEREST_CODES)
     )
     if start:
         mint_slip_sum = mint_slip_sum.filter(Transaction.activity_date >= start)
@@ -123,7 +130,7 @@ def get_transfers_summary(
 
     # Fees paid: GOLD only (negative amounts)
     fees = db.query(func.sum(Transaction.amount)).filter(
-        Transaction.broker == broker, Transaction.trans_code == "GOLD"
+        Transaction.broker == broker, Transaction.trans_code == TC.GOLD
     )
     if start:
         fees = fees.filter(Transaction.activity_date >= start)
@@ -139,5 +146,5 @@ def get_transfers_summary(
         fees_paid=float(fees),
     )
 
-    set_cached(cache_key, result.model_dump(), ttl=300)
+    set_cached(cache_key, result.model_dump(), ttl=CACHE_TTL_SHORT)
     return result

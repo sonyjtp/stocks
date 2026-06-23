@@ -96,6 +96,14 @@ export default function TransactionHistory() {
   const [deleting, setDeleting] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
 
+  // Bulk delete
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+
+  // Clear selection when filters change
+  useEffect(() => { setSelectedIds(new Set()) }, [startDate, endDate, ticker, transCode, tickerExact])
+
   // Close add dropdown when clicking outside
   useEffect(() => {
     const handler = (e) => {
@@ -144,7 +152,7 @@ export default function TransactionHistory() {
     return d.toISOString().split('T')[0]
   }
 
-  const handleReset = () => { setStartDate(''); setEndDate(''); setTicker(''); setTickerExact(false); setTransCode('') }
+  const handleReset = () => { setStartDate(''); setEndDate(''); setTicker(''); setTickerExact(false); setTransCode(''); setSelectedIds(new Set()) }
 
   const handleSort = (field) => {
     if (sortBy === field) setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
@@ -162,6 +170,21 @@ export default function TransactionHistory() {
     if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1
     if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1
     return 0
+  })
+
+  const allChecked = sortedTransactions.length > 0 && sortedTransactions.every(t => selectedIds.has(t.id))
+  const someChecked = selectedIds.size > 0 && !allChecked
+
+  const toggleAll = () => {
+    if (allChecked) setSelectedIds(new Set())
+    else setSelectedIds(new Set(sortedTransactions.map(t => t.id)))
+  }
+
+  const toggleOne = (id) => setSelectedIds(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
   })
 
   const getDescriptionForTicker = (tickerVal) => {
@@ -314,6 +337,28 @@ export default function TransactionHistory() {
       setMultiSaveError(e.message)
     } finally {
       setMultiSaving(false)
+    }
+  }
+
+  // ── Bulk delete ──────────────────────────────────────────────────────────
+
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true)
+    setConfirmBulkDelete(false)
+    try {
+      const res = await fetch(`${API_BASE}/transactions`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      })
+      if (!res.ok && res.status !== 204) throw new Error('Failed to delete transactions')
+      await fetch(`${API_BASE}/settings/clear-cache`, { method: 'POST' })
+      setSelectedIds(new Set())
+      queryClient.invalidateQueries()
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -484,6 +529,15 @@ export default function TransactionHistory() {
           {transactionTypes.map(t => <option key={t} value={t}>{displayCode(t)}</option>)}
         </select>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={() => setConfirmBulkDelete(true)}
+              disabled={bulkDeleting}
+              style={{ padding: '0.5rem 1rem', background: theme.colors.danger, color: 'white', border: 'none', borderRadius: '4px', cursor: bulkDeleting ? 'not-allowed' : 'pointer', fontSize: '0.9rem' }}
+            >
+              {bulkDeleting ? 'Deleting...' : `Delete Selected (${selectedIds.size})`}
+            </button>
+          )}
           <button
             onClick={exportToExcel}
             disabled={sortedTransactions.length === 0}
@@ -545,6 +599,15 @@ export default function TransactionHistory() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr>
+                <th style={{ padding: '0.6rem 0.75rem', background: theme.bgSecondary, borderBottom: `2px solid ${theme.border}` }}>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    ref={el => { if (el) el.indeterminate = someChecked }}
+                    onChange={toggleAll}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
                 <TableHeader field="activity_date" label="Date" />
                 <TableHeader field="ticker" label="Ticker" />
                 <TableHeader field="description" label="Description" />
@@ -557,12 +620,15 @@ export default function TransactionHistory() {
             </thead>
             <tbody>
               {sortedTransactions.map((t) => (
-                <tr key={t.id} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                <tr key={t.id} style={{ borderBottom: `1px solid ${theme.border}`, background: selectedIds.has(t.id) ? `${theme.colors.primary}18` : undefined }}>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleOne(t.id)} style={{ cursor: 'pointer' }} />
+                  </td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text, whiteSpace: 'nowrap' }}>{formatDate(t.activity_date)}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text, fontWeight: 'bold' }}>{t.ticker || '-'}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.textSecondary, maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text }}>{displayCode(t.trans_code)}</td>
-                  <td style={{ padding: '0.5rem 0.75rem', color: theme.text, textAlign: 'right' }}>{t.quantity ? parseFloat(t.quantity).toFixed(4) : '-'}</td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: theme.text, textAlign: 'right' }}>{t.quantity ? parseFloat(t.quantity).toLocaleString('en-US', { maximumFractionDigits: 8 }) : '-'}</td>
                   <td style={{ padding: '0.5rem 0.75rem', color: theme.text, textAlign: 'right' }}>{t.price ? formatCurrency(t.price) : '-'}</td>
                   <td style={{ padding: '0.5rem 0.75rem', fontWeight: 'bold', textAlign: 'right', color: t.amount >= 0 ? theme.colors.success : theme.colors.danger }}>
                     {formatCurrency(t.amount)}
@@ -761,6 +827,29 @@ export default function TransactionHistory() {
               </button>
               <button onClick={handleMultiSave} disabled={multiSaving} style={{ padding: '0.6rem 1.5rem', background: theme.colors.primary, color: 'white', border: 'none', borderRadius: '6px', cursor: multiSaving ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>
                 {multiSaving ? 'Saving...' : `Save ${multiRows.length} Transaction${multiRows.length > 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk Delete Confirmation Modal ── */}
+      {confirmBulkDelete && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmBulkDelete(false) }}
+        >
+          <div style={{ background: theme.bgSecondary, borderRadius: '10px', padding: '2rem', width: '100%', maxWidth: '420px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+            <h3 style={{ margin: '0 0 0.75rem', color: theme.colors.danger }}>Delete Transactions</h3>
+            <p style={{ margin: '0 0 1.5rem', color: theme.text }}>
+              Are you sure you want to delete <strong>{selectedIds.size}</strong> transaction{selectedIds.size !== 1 ? 's' : ''}? This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmBulkDelete(false)} style={{ padding: '0.6rem 1.25rem', border: `1px solid ${theme.border}`, borderRadius: '6px', background: 'transparent', color: theme.text, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleBulkDelete} style={{ padding: '0.6rem 1.5rem', background: theme.colors.danger, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                Delete {selectedIds.size} Transaction{selectedIds.size !== 1 ? 's' : ''}
               </button>
             </div>
           </div>

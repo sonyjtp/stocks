@@ -18,14 +18,13 @@ class TransactionBase(BaseModel):
 
 
 class TransactionCreate(TransactionBase):
-    broker: str
+    broker: str = "robinhood"
 
 
 class TransactionResponse(TransactionCreate):
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class ConsolidatedReportItem(BaseModel):

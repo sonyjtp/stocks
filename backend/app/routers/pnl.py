@@ -5,11 +5,10 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..cache import get_cached, set_cached
+from ..cache import CACHE_TTL_LONG, CACHE_TTL_SHORT, get_cached, set_cached
 from ..database import get_db
 from ..logger import get_logger
-from ..models import Transaction
-from ..schemas import PnLSummary
+from ..models import FEE_CODES, PNL_ACQUISITION_CODES, TC, TRADE_CODES, PnLSummary, Transaction
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["pnl"])
@@ -42,7 +41,7 @@ def get_pnl_summary(
     tickers = db.query(Transaction.ticker).filter(
         Transaction.broker == broker,
         Transaction.ticker.isnot(None),
-        Transaction.trans_code.in_(["Buy", "Sell"]),
+        Transaction.trans_code.in_(TRADE_CODES),
     )
     if start:
         tickers = tickers.filter(Transaction.activity_date >= start)
@@ -67,7 +66,7 @@ def get_pnl_summary(
             .filter(
                 Transaction.broker == broker,
                 Transaction.ticker == ticker,
-                Transaction.trans_code.in_(["Buy", "CONV", "SPL", "SPR"]),
+                Transaction.trans_code.in_(PNL_ACQUISITION_CODES),
                 Transaction.quantity.isnot(None),
                 Transaction.quantity > 0,
             )
@@ -81,7 +80,7 @@ def get_pnl_summary(
             .filter(
                 Transaction.broker == broker,
                 Transaction.ticker == ticker,
-                Transaction.trans_code == "Sell",
+                Transaction.trans_code == TC.SELL,
                 Transaction.quantity.isnot(None),
             )
             .order_by(Transaction.activity_date)
@@ -95,15 +94,15 @@ def get_pnl_summary(
         buy_lots = []
         for quantity, amount, act_date, trans_code in all_acquisitions:
             qty = Decimal(str(quantity))
-            if trans_code == "Buy":
+            if trans_code == TC.BUY:
                 cost_per_share = (-Decimal(str(amount))) / qty if amount else Decimal("0")
                 buy_lots.append(
                     {"quantity": qty, "cost_per_share": cost_per_share, "remaining": qty}
                 )
-            elif trans_code == "CONV":
+            elif trans_code == TC.CONV:
                 # Broker transfer (Apex→RHS): original buy predates history, cost unknown
                 buy_lots.append({"quantity": qty, "cost_per_share": Decimal("0"), "remaining": qty})
-            elif trans_code in ("SPL", "SPR"):
+            elif trans_code in (TC.SPL, TC.SPR):
                 # Stock split: redistribute total cost across all shares (new + old)
                 total_before = sum(lot["remaining"] for lot in buy_lots)
                 if total_before > 0:
@@ -150,7 +149,7 @@ def get_pnl_summary(
         buy_amount = db.query(func.sum(Transaction.amount)).filter(
             Transaction.broker == broker,
             Transaction.ticker == ticker,
-            Transaction.trans_code == "Buy",
+            Transaction.trans_code == TC.BUY,
         )
         if start:
             buy_amount = buy_amount.filter(Transaction.activity_date >= start)
@@ -166,7 +165,7 @@ def get_pnl_summary(
 
     # Dividends earned
     dividends = db.query(func.sum(Transaction.amount)).filter(
-        Transaction.broker == broker, Transaction.trans_code == "CDIV"
+        Transaction.broker == broker, Transaction.trans_code == TC.CDIV
     )
     if start:
         dividends = dividends.filter(Transaction.activity_date >= start)
@@ -176,7 +175,7 @@ def get_pnl_summary(
 
     # Total fees (GOLD subscription + MINT margin interest)
     fees = db.query(func.sum(Transaction.amount)).filter(
-        Transaction.broker == broker, Transaction.trans_code.in_(["GOLD", "MINT"])
+        Transaction.broker == broker, Transaction.trans_code.in_(FEE_CODES)
     )
     if start:
         fees = fees.filter(Transaction.activity_date >= start)
@@ -261,7 +260,7 @@ def get_pnl_summary(
     )
 
     # Cache longer for historical date ranges (they won't change)
-    cache_ttl = 3600 if (start or end) else 300  # 1 hour for date ranges, 5 min for current
+    cache_ttl = CACHE_TTL_LONG if (start or end) else CACHE_TTL_SHORT
     set_cached(cache_key, result.model_dump(), ttl=cache_ttl)
     logger.info(
         f"P&L Summary - Realized: ${realized_pnl:.2f}, "
