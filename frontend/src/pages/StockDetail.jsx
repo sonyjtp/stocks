@@ -39,6 +39,16 @@ export default function StockDetail() {
     },
   })
 
+  const { data: sectorRaw = {} } = useQuery({
+    queryKey: ['sector', upper],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/sector?tickers=${upper}`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    staleTime: 24 * 60 * 60 * 1000,
+  })
+
   const { data: analystRaw = {} } = useQuery({
     queryKey: ['analyst', upper],
     queryFn: async () => {
@@ -69,6 +79,7 @@ export default function StockDetail() {
   if (holdLoading) return <Spinner />
 
   const holding = consolidatedData?.holdings?.find(h => h.ticker === upper)
+  const sector = sectorRaw[upper] && sectorRaw[upper] !== 'Other' ? sectorRaw[upper] : null
   const currentPrice = prices[upper]
   const priceChange5d = priceChanges[upper]
   const analyst = analystRaw[upper] || { ratings: {}, price_target: {} }
@@ -128,6 +139,20 @@ export default function StockDetail() {
         {priceChange5d != null && (
           <span style={{ fontSize: '0.95rem', fontWeight: 600, color: priceChange5d >= 0 ? theme.colors.success : theme.colors.danger }}>
             {fmtPct(priceChange5d)} (5d)
+          </span>
+        )}
+        {sector && (
+          <span
+            onClick={() => navigate(`/sector/${encodeURIComponent(sector)}`)}
+            style={{
+              fontSize: '0.78rem', fontWeight: 600,
+              padding: '0.25rem 0.7rem', borderRadius: '999px',
+              border: `1px solid ${theme.border}`,
+              color: theme.textSecondary, cursor: 'pointer',
+              background: theme.bgSecondary,
+            }}
+          >
+            {sector}
           </span>
         )}
       </div>

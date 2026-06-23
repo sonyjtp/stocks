@@ -95,6 +95,18 @@ export default function Dashboard() {
     enabled: heldTickers.length > 0,
   })
 
+  const { data: sectorData = {} } = useQuery({
+    queryKey: ['sectors', heldTickers.join(',')],
+    queryFn: async () => {
+      if (heldTickers.length === 0) return {}
+      const res = await fetch(`${API_BASE}/sector?tickers=${heldTickers.join(',')}`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: heldTickers.length > 0,
+    staleTime: 24 * 60 * 60 * 1000,
+  })
+
   const signals = computeSignals(holdings, prices, priceChanges)
   const signalTickers = [...new Set(signals.map(s => s.ticker))]
 
@@ -125,6 +137,7 @@ export default function Dashboard() {
   const cashFlowData = generateCashFlowData(achTransactions)
   const volatilityData = calculateVolatility(transactions)
   const portfolioAllocation = getPortfolioAllocation(holdings, prices)
+  const sectorAllocation = getSectorAllocation(holdings, prices, sectorData)
   const totalPortfolioValue = portfolioAllocation.reduce((s, e) => s + e.value, 0)
   const realizedPnlData = getRealizedPnlChart(report, pnlLimit)
   const monthlyInvestedData = getMonthlyInvested(transactions)
@@ -228,6 +241,34 @@ export default function Dashboard() {
                   )
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Sector Allocation */}
+          {sectorAllocation.length > 0 && (
+            <div style={{ background: theme.bgSecondary, padding: '1.5rem', borderRadius: '8px', boxShadow: theme.shadow, marginBottom: '1.5rem' }}>
+              <h2 style={{ marginTop: 0, color: theme.text }}>Sector Allocation</h2>
+              {sectorAllocation.map(({ sector, value }) => {
+                const pct = (value / totalPortfolioValue) * 100
+                return (
+                  <div key={sector} style={{ marginBottom: '0.9rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                      <span
+                        onClick={() => navigate(`/sector/${encodeURIComponent(sector)}`)}
+                        style={{ fontWeight: 600, fontSize: '0.9rem', color: theme.colors.primary, cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        {sector}
+                      </span>
+                      <span style={{ fontSize: '0.85rem', color: theme.textSecondary }}>
+                        {pct.toFixed(1)}% &nbsp;·&nbsp; ${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                      </span>
+                    </div>
+                    <div style={{ background: theme.border, borderRadius: '4px', height: '7px' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: theme.colors.primary, borderRadius: '4px', transition: 'width 0.4s ease' }} />
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -612,6 +653,20 @@ function getPortfolioAllocation(holdings, prices, topN = 8) {
   const top = withValue.slice(0, topN)
   const othersValue = withValue.slice(topN).reduce((sum, h) => sum + h.value, 0)
   return [...top, { ticker: 'Others', value: othersValue }]
+}
+
+function getSectorAllocation(holdings, prices, sectorData) {
+  if (Object.keys(sectorData).length === 0) return []
+  const sectorValues = {}
+  holdings
+    .filter(h => parseFloat(h.shares_held) > 0 && prices[h.ticker])
+    .forEach(h => {
+      const s = sectorData[h.ticker] || 'Other'
+      sectorValues[s] = (sectorValues[s] || 0) + parseFloat(h.shares_held) * parseFloat(prices[h.ticker])
+    })
+  return Object.entries(sectorValues)
+    .map(([sector, value]) => ({ sector, value }))
+    .sort((a, b) => b.value - a.value)
 }
 
 function getRealizedPnlChart(report, limit = 5) {
