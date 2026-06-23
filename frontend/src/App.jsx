@@ -1,5 +1,5 @@
-import { useContext } from 'react'
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { useContext, useState } from 'react'
+import { BrowserRouter, Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeContext, ThemeProvider } from './context/ThemeContext'
 import Dashboard from './pages/Dashboard'
@@ -14,6 +14,56 @@ import StockDetail from './pages/StockDetail'
 import './App.css'
 
 const queryClient = new QueryClient()
+
+function TickerSearch({ theme }) {
+  const [input, setInput] = useState('')
+  const navigate = useNavigate()
+
+  const go = () => {
+    const ticker = input.trim().toUpperCase()
+    if (!ticker) return
+    setInput('')
+    navigate(`/stock/${ticker}`)
+  }
+
+  return (
+    <form
+      onSubmit={(e) => { e.preventDefault(); go() }}
+      style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+    >
+      <input
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="Search ticker…"
+        style={{
+          width: '130px',
+          padding: '0.3rem 0.6rem',
+          borderRadius: '4px',
+          border: `1px solid ${theme.border}`,
+          background: theme.bg,
+          color: theme.text,
+          fontSize: '0.85rem',
+          outline: 'none',
+        }}
+      />
+      <button
+        type="submit"
+        style={{
+          background: theme.colors.primary,
+          border: 'none',
+          borderRadius: '4px',
+          color: '#fff',
+          padding: '0.3rem 0.6rem',
+          cursor: 'pointer',
+          fontSize: '0.85rem',
+          fontWeight: 600,
+        }}
+      >
+        Go
+      </button>
+    </form>
+  )
+}
 
 function AppContent() {
   const { theme, isDark, setIsDark } = useContext(ThemeContext)
@@ -81,6 +131,9 @@ function AppContent() {
                 </NavLink>
               </li>
             ))}
+            <li style={{ display: 'flex', alignItems: 'center' }}>
+              <TickerSearch theme={theme} />
+            </li>
             <li>
               <button
                 onClick={() => setIsDark(!isDark)}

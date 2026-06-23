@@ -20,13 +20,14 @@ A personal stock portfolio dashboard for tracking trades, P&L, holdings, and tra
 | **Dashboard**            | Overview tab: summary cards, signals panel, portfolio allocation. Analytics tab: realized P&L chart, monthly buy activity, cash flow, volatility. P&L tab: date-filtered breakdown. News tab: recent headlines for high-volatility tickers |
 | **Transaction History**  | All trades (Buy/Sell/CDIV/CONV/SPL). Filter by date, ticker, type. Add/edit/delete rows. Export to Excel                                                                                                                                   |
 | **Current Holdings**     | Live prices via Yahoo Finance. FIFO cost basis, unrealized P&L per ticker. Click any ticker to open its detail page                                                                                                                        |
-| **Stock Detail**         | Per-ticker page: position summary, analyst consensus (ratings + price target), active signals, recent news, link to trade history                                                                                                           |
+| **Stock Detail**         | Per-ticker page (any ticker, not just held ones): position, current price + unrealized P&L, analyst consensus (ratings + price target), active signals, recent news, link to trade history                                                 |
 | **All-Time Performance** | Per-ticker: shares bought/sold/held, realized P&L, dividends, cost basis                                                                                                                                                                   |
 | **P&L Summary**          | Realized vs unrealized breakdown. Sold + held + dividends − fees = net P&L                                                                                                                                                                 |
 | **Transfers & Fees**     | ACH, debit card (DCF), interest (INT/MINT/SLIP), Gold fees (GOLD), foreign tax (DTAX). Export to Excel                                                                                                                                     |
 | **Upload**               | Upload Robinhood CSV or PDF. Smart duplicate detection with per-row selection                                                                                                                                                              |
 | **Upload History**       | Audit log of all uploads. Rollback individual uploads and their transactions                                                                                                                                                               |
 | **Settings**             | Signal thresholds (take profit / stop loss / 5-day rally). Clear Redis cache. Dark/light theme toggle                                                                                                                                      |
+| **Ticker Search**        | Navbar search box — type any ticker, press Enter or Go to open its detail page. Works for any valid symbol, not just held positions                                                                                                        |
 
 **Core capabilities:**
 - FIFO cost basis with broker transfers (CONV = $0 basis) and stock splits (SPL/SPR)
@@ -196,20 +197,20 @@ stocks/
 │   │       ├── pnl.py           # P&L report (FIFO)
 │   │       ├── transfers.py     # Transfers & fees
 │   │       ├── prices.py        # Live price fetch, 5-day change, news
-│       ├── analyst.py       # Analyst consensus + price targets
+│   │       ├── analyst.py       # Analyst consensus + price targets
 │   │       └── settings.py      # Cache management
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_robinhood_csv.py   # 36 tests — CSV parser
-│       ├── test_robinhood_pdf.py   # 55 tests — PDF parser
+│       ├── test_robinhood_pdf.py   # 69 tests — PDF parser
 │       ├── test_pnl.py             # 27 tests — FIFO P&L + interest
-│       ├── test_prices.py          # 21 tests — price fetcher, 5-day change, news
+│       ├── test_prices.py          # 23 tests — price fetcher, 5-day change, news (incl. yfinance compat)
 │       ├── test_analyst.py         # 9 tests — analyst ratings + price targets
 │       ├── test_upload.py          # 12 tests — upload endpoint
-│       └── test_api_endpoints.py   # 57 tests — all routers
+│       └── test_api_endpoints.py   # 41 tests — all routers
 ├── frontend/
 │   └── src/
-│       ├── App.jsx              # Routing + sticky navbar + theme
+│       ├── App.jsx              # Routing + sticky navbar + theme + TickerSearch
 │       ├── context/
 │       │   └── ThemeContext.jsx
 │       └── pages/

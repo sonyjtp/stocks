@@ -155,7 +155,7 @@ export default function StockDetail() {
                 <span style={{ color: theme.textSecondary }}>…</span>
               ) : unrealizedPnL != null ? (
                 <span style={{ fontWeight: 700, color: unrealizedPnL >= 0 ? theme.colors.success : theme.colors.danger }}>
-                  {fmt(unrealizedPnL)} ({fmtPct(unrealizedPct)})
+                  {fmt(unrealizedPnL)}{unrealizedPct != null ? ` (${fmtPct(unrealizedPct)})` : ''}
                 </span>
               ) : (
                 <span style={{ color: theme.textSecondary }}>—</span>
