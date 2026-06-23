@@ -14,6 +14,7 @@ const PIE_COLORS = ['#3498db', '#9b59b6', '#27ae60', '#f39c12', '#e67e22', '#1ab
 export default function Dashboard() {
   const { theme } = useContext(ThemeContext)
   const [activeTab, setActiveTab] = useState('overview')
+  const [signalSort, setSignalSort] = useState({ take_profit: 'desc', stop_loss: 'asc', rally: 'desc' })
   const [pnlLimit, setPnlLimit] = useState(5)
   const [pnlStart, setPnlStart] = useState('')
   const [pnlEnd, setPnlEnd] = useState(new Date().toISOString().split('T')[0])
@@ -80,6 +81,18 @@ export default function Dashboard() {
     enabled: holdings.length > 0,
   })
 
+  const heldTickers = holdings.filter(h => h.shares_held > 0).map(h => h.ticker)
+  const { data: priceChanges = {} } = useQuery({
+    queryKey: ['price-changes', heldTickers.join(',')],
+    queryFn: async () => {
+      if (heldTickers.length === 0) return {}
+      const res = await fetch(`${API_BASE}/prices/change?tickers=${heldTickers.join(',')}`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: heldTickers.length > 0,
+  })
+
   if (txLoading || holdLoading || pnlLoading || achLoading) return <Spinner />
 
   const metrics = pnlData ? {
@@ -93,8 +106,7 @@ export default function Dashboard() {
     }).length / holdings.length) * 100 : 0
   } : { totalInvested: 0, currentValue: 0, totalGainLoss: 0, winRate: 0 }
 
-  const topPerformers = getTopPerformers(holdings, prices, 5)
-  const worstPerformers = getWorstPerformers(holdings, prices, 5)
+  const signals = computeSignals(holdings, prices, priceChanges)
   const cashFlowData = generateCashFlowData(achTransactions)
   const volatilityData = calculateVolatility(transactions)
   const portfolioAllocation = getPortfolioAllocation(holdings, prices)
@@ -108,7 +120,7 @@ export default function Dashboard() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: `2px solid ${theme.border}` }}>
-        {['overview', 'holdings', 'analytics', 'pnl'].map(tab => (
+        {['overview', 'analytics', 'pnl'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -127,7 +139,6 @@ export default function Dashboard() {
             }}
           >
             {tab === 'overview' && '📈 Overview'}
-            {tab === 'holdings' && '💼 Holdings'}
             {tab === 'analytics' && '📊 Analytics'}
             {tab === 'pnl' && '💰 P&L'}
           </button>
@@ -144,6 +155,62 @@ export default function Dashboard() {
             <SummaryCard theme={theme} label="Total Gain/Loss" value={`$${metrics.totalGainLoss.toFixed(2)}`} color={metrics.totalGainLoss >= 0 ? theme.colors.success : theme.colors.danger} />
             <SummaryCard theme={theme} label="Win Rate" value={`${metrics.winRate.toFixed(1)}%`} color={theme.colors.warning} />
           </div>
+
+          {/* Signals */}
+          {signals.length > 0 && (
+            <div style={{ background: theme.bgSecondary, padding: '1.5rem', borderRadius: '8px', boxShadow: theme.shadow, marginBottom: '2rem' }}>
+              <h2 style={{ marginTop: 0, marginBottom: '1.25rem', color: theme.text }}>Signals</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                {[
+                  { type: 'take_profit', icon: '🎯', label: 'Take Profit', color: theme.colors.success },
+                  { type: 'stop_loss',   icon: '🛑', label: 'Stop Loss',   color: theme.colors.danger },
+                  { type: 'rally',       icon: '📈', label: '5-Day Rally', color: theme.colors.warning },
+                ].map(({ type, icon, label, color }) => {
+                  const group = signals.filter(s => s.type === type)
+                  const order = signalSort[type]
+                  const sorted = [...group].sort((a, b) => order === 'desc' ? b.pct - a.pct : a.pct - b.pct)
+                  return (
+                    <div key={type} style={{ border: `1px solid ${theme.border}`, borderRadius: '6px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        padding: '0.6rem 0.75rem', background: `${color}18`,
+                        borderBottom: `1px solid ${theme.border}`, flexShrink: 0,
+                      }}>
+                        <span>{icon}</span>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem', color, flex: 1 }}>{label}</span>
+                        {group.length > 0 && (
+                          <span style={{ fontSize: '0.8rem', color: theme.textSecondary }}>{group.length}</span>
+                        )}
+                        {group.length > 1 && (
+                          <button
+                            onClick={() => setSignalSort(prev => ({ ...prev, [type]: prev[type] === 'desc' ? 'asc' : 'desc' }))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: theme.textSecondary, fontSize: '0.85rem', padding: '0 0.1rem' }}
+                          >
+                            {order === 'desc' ? '↓' : '↑'}
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ overflowY: 'auto', maxHeight: '370px' }}>
+                        {sorted.length === 0 ? (
+                          <div style={{ padding: '1rem 0.75rem', color: theme.textSecondary, fontSize: '0.85rem', textAlign: 'center' }}>—</div>
+                        ) : sorted.map(s => (
+                          <div key={s.ticker} style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '0.5rem 0.75rem', borderBottom: `1px solid ${theme.border}`,
+                          }}>
+                            <span style={{ fontWeight: 'bold', color: theme.text, fontSize: '0.88rem' }}>{s.ticker}</span>
+                            <span style={{ fontSize: '0.85rem', color, fontWeight: 600 }}>
+                              {s.pct >= 0 ? '+' : ''}{s.pct.toFixed(1)}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Portfolio Allocation */}
           {portfolioAllocation.length > 0 && (
@@ -191,13 +258,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Tab 2: Holdings */}
-      {activeTab === 'holdings' && (
-        <div>
-          <PerformersTable theme={theme} title="🏆 Top Performers" data={topPerformers} />
-          <PerformersTable theme={theme} title="📉 Worst Performers" data={worstPerformers} style={{ marginTop: '1.5rem' }} />
-        </div>
-      )}
+
 
       {/* Tab 3: Analytics */}
       {activeTab === 'analytics' && (
@@ -354,6 +415,7 @@ export default function Dashboard() {
                 <PnLRow theme={theme} label="Realized P&L" value={pnlTabData.realized_pnl} />
                 <PnLRow theme={theme} label="Unrealized P&L" value={pnlTabData.unrealized_pnl} />
                 <PnLRow theme={theme} label="Dividends" value={pnlTabData.dividends} />
+                <PnLRow theme={theme} label="Interest" value={pnlTabData.interest} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                   <span style={{ fontSize: '0.95rem', color: theme.text }}>Fees</span>
                   <span style={{ fontWeight: 'bold', color: theme.colors.danger }}>
@@ -405,39 +467,6 @@ function SummaryCard({ theme, label, value, color }) {
   )
 }
 
-function PerformersTable({ theme, title, data, style }) {
-  return (
-    <div style={{ background: theme.bgSecondary, padding: '1.5rem', borderRadius: '8px', boxShadow: theme.shadow, ...style }}>
-      <h3 style={{ marginTop: 0, color: theme.text }}>{title}</h3>
-      {data.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-          <thead>
-            <tr style={{ borderBottom: `2px solid ${theme.border}`, backgroundColor: theme.bg }}>
-              <th style={{ textAlign: 'left', padding: '0.75rem', color: theme.textSecondary }}>Ticker</th>
-              <th style={{ textAlign: 'right', padding: '0.75rem', color: theme.textSecondary }}>Return %</th>
-              <th style={{ textAlign: 'right', padding: '0.75rem', color: theme.textSecondary }}>Gain/Loss</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row, idx) => (
-              <tr key={idx} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                <td style={{ padding: '0.75rem', color: theme.text }}><strong>{row.ticker}</strong></td>
-                <td style={{ textAlign: 'right', padding: '0.75rem', color: row.return >= 0 ? theme.colors.success : theme.colors.danger }}>
-                  {row.return >= 0 ? '+' : ''}{row.return.toFixed(2)}%
-                </td>
-                <td style={{ textAlign: 'right', padding: '0.75rem', color: row.gainLoss >= 0 ? theme.colors.success : theme.colors.danger }}>
-                  ${row.gainLoss.toFixed(2)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p style={{ color: theme.textSecondary }}>No data</p>
-      )}
-    </div>
-  )
-}
 
 function MetricBox({ theme, label, value, subtitle }) {
   return (
@@ -520,29 +549,6 @@ function getMonthlyInvested(transactions) {
     .sort((a, b) => a.month.localeCompare(b.month))
 }
 
-function getTopPerformers(holdings, prices, limit) {
-  return holdings
-    .filter(h => h.shares_held > 0 && prices[h.ticker])
-    .map(h => ({
-      ticker: h.ticker,
-      return: ((parseFloat(prices[h.ticker]) - parseFloat(h.avg_cost)) / parseFloat(h.avg_cost)) * 100,
-      gainLoss: parseFloat(h.shares_held) * (parseFloat(prices[h.ticker]) - parseFloat(h.avg_cost)),
-    }))
-    .sort((a, b) => b.return - a.return)
-    .slice(0, limit)
-}
-
-function getWorstPerformers(holdings, prices, limit) {
-  return holdings
-    .filter(h => h.shares_held > 0 && prices[h.ticker])
-    .map(h => ({
-      ticker: h.ticker,
-      return: ((parseFloat(prices[h.ticker]) - parseFloat(h.avg_cost)) / parseFloat(h.avg_cost)) * 100,
-      gainLoss: parseFloat(h.shares_held) * (parseFloat(prices[h.ticker]) - parseFloat(h.avg_cost)),
-    }))
-    .sort((a, b) => a.return - b.return)
-    .slice(0, limit)
-}
 
 function generateCashFlowData(transactions) {
   const byMonth = {}
@@ -559,6 +565,35 @@ function generateCashFlowData(transactions) {
   return Object.entries(byMonth)
     .map(([month, data]) => ({ month, ...data }))
     .sort((a, b) => a.month.localeCompare(b.month))
+}
+
+function computeSignals(holdings, prices, priceChanges) {
+  const takeProfit = parseFloat(localStorage.getItem('signal_take_profit') ?? '20')
+  const stopLoss = parseFloat(localStorage.getItem('signal_stop_loss') ?? '10')
+  const rally = parseFloat(localStorage.getItem('signal_rally') ?? '5')
+
+  const signals = []
+  const heldSet = new Set()
+
+  holdings
+    .filter(h => h.shares_held > 0 && prices[h.ticker])
+    .forEach(h => {
+      heldSet.add(h.ticker)
+      const gainPct = (parseFloat(prices[h.ticker]) - parseFloat(h.avg_cost)) / parseFloat(h.avg_cost) * 100
+      if (gainPct >= takeProfit) {
+        signals.push({ ticker: h.ticker, type: 'take_profit', pct: gainPct, label: 'Take Profit' })
+      } else if (gainPct <= -stopLoss) {
+        signals.push({ ticker: h.ticker, type: 'stop_loss', pct: gainPct, label: 'Stop Loss' })
+      }
+    })
+
+  Object.entries(priceChanges).forEach(([ticker, change]) => {
+    if (change !== null && change >= rally && heldSet.has(ticker)) {
+      signals.push({ ticker, type: 'rally', pct: change, label: '5d Rally' })
+    }
+  })
+
+  return signals
 }
 
 function calculateVolatility(transactions) {

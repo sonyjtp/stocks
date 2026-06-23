@@ -8,7 +8,15 @@ from sqlalchemy.orm import Session
 from ..cache import CACHE_TTL_LONG, CACHE_TTL_SHORT, get_cached, set_cached
 from ..database import get_db
 from ..logger import get_logger
-from ..models import FEE_CODES, PNL_ACQUISITION_CODES, TC, TRADE_CODES, PnLSummary, Transaction
+from ..models import (
+    FEE_CODES,
+    INCOME_CODES,
+    PNL_ACQUISITION_CODES,
+    TC,
+    TRADE_CODES,
+    PnLSummary,
+    Transaction,
+)
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["pnl"])
@@ -173,6 +181,16 @@ def get_pnl_summary(
         dividends = dividends.filter(Transaction.activity_date <= end)
     dividends = dividends.scalar() or Decimal("0")
 
+    # Interest income (INT + SLIP — stock lending and cash interest)
+    interest_q = db.query(func.sum(Transaction.amount)).filter(
+        Transaction.broker == broker, Transaction.trans_code.in_(INCOME_CODES)
+    )
+    if start:
+        interest_q = interest_q.filter(Transaction.activity_date >= start)
+    if end:
+        interest_q = interest_q.filter(Transaction.activity_date <= end)
+    interest = interest_q.scalar() or Decimal("0")
+
     # Total fees (GOLD subscription + MINT margin interest)
     fees = db.query(func.sum(Transaction.amount)).filter(
         Transaction.broker == broker, Transaction.trans_code.in_(FEE_CODES)
@@ -243,8 +261,8 @@ def get_pnl_summary(
                     unrealized_pnl += Decimal(str(current_value - cost_basis))
                     held_shares_current_value += Decimal(str(current_value))
 
-    # Net P&L = realized_pnl + unrealized_pnl + dividends - fees
-    net_pnl = realized_pnl + unrealized_pnl + dividends - fees
+    # Net P&L = realized_pnl + unrealized_pnl + dividends + interest - fees
+    net_pnl = realized_pnl + unrealized_pnl + dividends + interest - fees
 
     result = PnLSummary(
         total_invested=float(total_invested),
@@ -255,6 +273,7 @@ def get_pnl_summary(
         realized_pnl=float(realized_pnl),
         unrealized_pnl=float(unrealized_pnl),
         dividends=float(dividends),
+        interest=float(interest),
         fees=float(fees),
         net_pnl=float(net_pnl),
     )

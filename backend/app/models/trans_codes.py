@@ -33,8 +33,11 @@ TRANSFER_CODES = frozenset({TC.ACH, TC.DCF, TC.INT, TC.GOLD, TC.MINT, TC.SLIP, T
 # Cash deposits and withdrawals
 DEPOSIT_CODES = frozenset({TC.ACH, TC.DCF})
 
-# Interest-credit codes
+# Interest-credit codes shown on Transfers page
 INTEREST_CODES = frozenset({TC.MINT, TC.SLIP})
+
+# Income codes counted in P&L (excludes MINT which is a margin fee, not income)
+INCOME_CODES = frozenset({TC.INT, TC.SLIP})
 
 # Fee codes
 FEE_CODES = frozenset({TC.GOLD, TC.MINT})

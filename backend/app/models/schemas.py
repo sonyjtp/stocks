@@ -54,6 +54,7 @@ class PnLSummary(BaseModel):
     realized_pnl: float
     unrealized_pnl: float
     dividends: float
+    interest: float
     fees: float
     net_pnl: float
 

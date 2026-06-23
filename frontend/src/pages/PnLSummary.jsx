@@ -103,6 +103,7 @@ export default function PnLSummary() {
             <StatRow label="Realized P&L" value={data.realized_pnl} />
             <StatRow label="Unrealized P&L" value={data.unrealized_pnl} />
             <StatRow label="Dividends" value={data.dividends} />
+            <StatRow label="Interest" value={data.interest} />
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem' }}>
               <span style={{ fontSize: '0.95rem', color: theme.text }}>Fees</span>
               <span style={{ flex: 1 }} />

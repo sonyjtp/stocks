@@ -8,12 +8,30 @@ export default function Settings() {
   const [clearingCache, setClearingCache] = useState(false)
   const [cacheMsg, setCacheMsg] = useState(null)
 
+  const [takeProfitPct, setTakeProfitPct] = useState(() => parseFloat(localStorage.getItem('signal_take_profit') ?? '20'))
+  const [stopLossPct, setStopLossPct] = useState(() => parseFloat(localStorage.getItem('signal_stop_loss') ?? '10'))
+  const [rallyPct, setRallyPct] = useState(() => parseFloat(localStorage.getItem('signal_rally') ?? '5'))
+  const [thresholdSaved, setThresholdSaved] = useState(false)
+
+  const saveThresholds = () => {
+    localStorage.setItem('signal_take_profit', takeProfitPct)
+    localStorage.setItem('signal_stop_loss', stopLossPct)
+    localStorage.setItem('signal_rally', rallyPct)
+    setThresholdSaved(true)
+    setTimeout(() => setThresholdSaved(false), 2000)
+  }
+
   const card = {
     background: theme.bgSecondary,
     borderRadius: '8px',
     boxShadow: theme.shadow,
     padding: '1.5rem',
     marginBottom: '1.5rem',
+  }
+
+  const inputStyle = {
+    padding: '0.5rem 0.75rem', borderRadius: '4px', border: `1px solid ${theme.border}`,
+    background: theme.bg, color: theme.text, fontSize: '0.9rem', width: '100%', boxSizing: 'border-box',
   }
 
   const clearCache = async () => {
@@ -57,6 +75,57 @@ export default function Settings() {
             {isDark ? '☀️ Switch to Light Mode' : '🌙 Switch to Dark Mode'}
           </button>
         </div>
+      </div>
+
+      {/* Signal Thresholds */}
+      <div style={card}>
+        <h3 style={{ marginTop: 0, color: theme.text }}>Signal Thresholds</h3>
+        <p style={{ color: theme.textSecondary, marginTop: 0, marginBottom: '1rem', fontSize: '0.9rem' }}>
+          Holdings that cross these thresholds appear as signals on the Dashboard.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>
+              Take Profit — unrealized gain above (%)
+            </label>
+            <input
+              type="number" min="1" max="1000" value={takeProfitPct}
+              onChange={e => setTakeProfitPct(parseFloat(e.target.value) || 20)}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>
+              Stop Loss — unrealized loss below (%)
+            </label>
+            <input
+              type="number" min="1" max="100" value={stopLossPct}
+              onChange={e => setStopLossPct(parseFloat(e.target.value) || 10)}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.85rem', color: theme.textSecondary }}>
+              5-Day Rally — price up over 5 days above (%)
+            </label>
+            <input
+              type="number" min="1" max="100" value={rallyPct}
+              onChange={e => setRallyPct(parseFloat(e.target.value) || 5)}
+              style={inputStyle}
+            />
+          </div>
+        </div>
+        {thresholdSaved && (
+          <div style={{ padding: '0.6rem 0.9rem', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontSize: '0.88rem', marginBottom: '0.75rem' }}>
+            Thresholds saved.
+          </div>
+        )}
+        <button
+          onClick={saveThresholds}
+          style={{ padding: '0.6rem 1.5rem', background: theme.colors.primary, color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          Save Thresholds
+        </button>
       </div>
 
       {/* Cache */}

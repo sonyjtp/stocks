@@ -311,7 +311,12 @@ class TestDividendsAndFees:
         assert abs(pnl["dividends"] - 50.0) < 0.01
         # Net P&L includes dividends
         assert pnl["net_pnl"] == pytest.approx(
-            pnl["realized_pnl"] + pnl["dividends"] + pnl["unrealized_pnl"] - pnl["fees"], abs=0.01
+            pnl["realized_pnl"]
+            + pnl["unrealized_pnl"]
+            + pnl["dividends"]
+            + pnl["interest"]
+            - pnl["fees"],
+            abs=0.01,
         )
 
     def test_gold_fees_subtracted(self, client, db_session):
@@ -325,3 +330,53 @@ class TestDividendsAndFees:
         add_tx(db_session, "AAPL", "CDIV", None, Decimal("50"), date(2024, 5, 1))
         pnl = get_pnl(client, start=date(2024, 1, 1), end=date(2024, 12, 31))
         assert abs(pnl["dividends"] - 50.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# Interest income (INT + SLIP)
+# ---------------------------------------------------------------------------
+
+
+class TestInterest:
+    def test_int_counted_in_interest(self, client, db_session):
+        add_tx(db_session, None, "INT", None, Decimal("12.50"), date(2024, 3, 1))
+        pnl = get_pnl(client)
+        assert abs(pnl["interest"] - 12.50) < 0.01
+
+    def test_slip_counted_in_interest(self, client, db_session):
+        add_tx(db_session, "AAPL", "SLIP", None, Decimal("5.00"), date(2024, 4, 1))
+        pnl = get_pnl(client)
+        assert abs(pnl["interest"] - 5.00) < 0.01
+
+    def test_int_and_slip_summed(self, client, db_session):
+        add_tx(db_session, None, "INT", None, Decimal("10.00"), date(2024, 3, 1))
+        add_tx(db_session, "AAPL", "SLIP", None, Decimal("7.50"), date(2024, 4, 1))
+        pnl = get_pnl(client)
+        assert abs(pnl["interest"] - 17.50) < 0.01
+
+    def test_interest_included_in_net_pnl(self, client, db_session):
+        add_tx(db_session, "AAPL", "Buy", Decimal("10"), Decimal("-1000"), date(2024, 1, 1))
+        add_tx(db_session, "AAPL", "Sell", Decimal("10"), Decimal("1100"), date(2024, 6, 1))
+        add_tx(db_session, None, "INT", None, Decimal("15.00"), date(2024, 5, 1))
+        pnl = get_pnl(client)
+        assert abs(pnl["interest"] - 15.00) < 0.01
+        # realized P&L = $100; interest = $15; net should include both
+        assert pnl["net_pnl"] == pytest.approx(
+            pnl["realized_pnl"]
+            + pnl["unrealized_pnl"]
+            + pnl["dividends"]
+            + pnl["interest"]
+            - pnl["fees"],
+            abs=0.01,
+        )
+
+    def test_interest_date_range_filtered(self, client, db_session):
+        add_tx(db_session, None, "INT", None, Decimal("20.00"), date(2023, 6, 1))
+        add_tx(db_session, None, "INT", None, Decimal("30.00"), date(2024, 6, 1))
+        pnl = get_pnl(client, start=date(2024, 1, 1), end=date(2024, 12, 31))
+        assert abs(pnl["interest"] - 30.00) < 0.01
+
+    def test_no_interest_transactions_zero(self, client, db_session):
+        add_tx(db_session, "AAPL", "Buy", Decimal("5"), Decimal("-500"), date(2024, 1, 1))
+        pnl = get_pnl(client)
+        assert pnl["interest"] == 0.0

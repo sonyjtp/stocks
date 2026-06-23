@@ -15,24 +15,37 @@ A personal stock portfolio dashboard for tracking trades, P&L, holdings, and tra
 
 ## Features
 
-| Page                     | Description                                                                                            |
-|--------------------------|--------------------------------------------------------------------------------------------------------|
-| **Dashboard**            | Portfolio allocation donut chart, realized P&L bar chart, monthly buy activity chart                   |
-| **Transaction History**  | All trades (Buy/Sell/CDIV/CONV/SPL). Filter by date, ticker, type. Add/edit rows. Export to Excel      |
-| **Current Holdings**     | Live prices via Yahoo Finance. FIFO cost basis, unrealized P&L per ticker                              |
-| **All-Time Performance** | Per-ticker: shares bought/sold/held, realized P&L, dividends, cost basis                               |
-| **P&L Summary**          | Realized vs unrealized breakdown. Sold + held + dividends − fees = net P&L                             |
-| **Transfers & Fees**     | ACH, debit card (DCF), interest (INT/MINT/SLIP), Gold fees (GOLD), foreign tax (DTAX). Export to Excel |
-| **Upload**               | Upload Robinhood CSV or PDF. Smart duplicate detection with per-row selection                          |
-| **Upload History**       | Audit log of all uploads. Rollback (delete) individual uploads and their transactions                  |
-| **Settings**             | Clear Redis cache                                                                                      |
+| Page                     | Description                                                                                                                                                                        |
+|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Dashboard**            | Overview tab: summary cards, signals panel, portfolio allocation. Analytics tab: realized P&L chart, monthly buy activity, cash flow, volatility. P&L tab: date-filtered breakdown |
+| **Transaction History**  | All trades (Buy/Sell/CDIV/CONV/SPL). Filter by date, ticker, type. Add/edit/delete rows. Export to Excel                                                                           |
+| **Current Holdings**     | Live prices via Yahoo Finance. FIFO cost basis, unrealized P&L per ticker                                                                                                          |
+| **All-Time Performance** | Per-ticker: shares bought/sold/held, realized P&L, dividends, cost basis                                                                                                           |
+| **P&L Summary**          | Realized vs unrealized breakdown. Sold + held + dividends − fees = net P&L                                                                                                         |
+| **Transfers & Fees**     | ACH, debit card (DCF), interest (INT/MINT/SLIP), Gold fees (GOLD), foreign tax (DTAX). Export to Excel                                                                             |
+| **Upload**               | Upload Robinhood CSV or PDF. Smart duplicate detection with per-row selection                                                                                                      |
+| **Upload History**       | Audit log of all uploads. Rollback individual uploads and their transactions                                                                                                       |
+| **Settings**             | Signal thresholds (take profit / stop loss / 5-day rally). Clear Redis cache. Dark/light theme toggle                                                                              |
 
 **Core capabilities:**
 - FIFO cost basis with broker transfers (CONV = $0 basis) and stock splits (SPL/SPR)
 - Duplicate detection on re-upload; select which duplicates to include
 - Redis caching (5-min TTL), invalidated on every mutation
-- Dark/light theme toggle
 - Color-coded P&L (green/red)
+
+---
+
+## Signals
+
+The Dashboard Overview tab shows a **Signals** panel with three columns — Take Profit, Stop Loss, and 5-Day Rally — for all currently held tickers. Each column is independently sortable and scrollable.
+
+| Signal         | Trigger                                           | Default threshold |
+|----------------|---------------------------------------------------|-------------------|
+| 🎯 Take Profit | Unrealized gain % ≥ threshold                     | 20%               |
+| 🛑 Stop Loss   | Unrealized loss % ≥ threshold                     | 10%               |
+| 📈 5-Day Rally | Price up ≥ threshold over the last 5 trading days | 5%                |
+
+Thresholds are configurable in **Settings → Signal Thresholds** and saved to browser local storage.
 
 ---
 
@@ -67,7 +80,7 @@ npm run dev
 - App: http://localhost:5174
 - API docs: http://localhost:8765/docs
 
-**Environment** — `.env.local` is pre-configured for local Docker defaults. Override via env vars:
+**Environment** — override via env vars:
 
 | Variable         | Default                                                                     |
 |------------------|-----------------------------------------------------------------------------|
@@ -95,7 +108,7 @@ Activity Date, Process Date, Settle Date, Instrument, Description, Trans Code, Q
 | Code                    | Meaning                                             |
 |-------------------------|-----------------------------------------------------|
 | `Buy` / `Sell`          | Equity trades                                       |
-| `CDIV`                  | Cash dividend                                       |
+| `CDIV`                  | Cash dividend / DRIP reinvestment                   |
 | `CONV`                  | Broker transfer (shares in; $0 cost basis)          |
 | `SPL` / `SPR`           | Stock split (adjusts lot quantities proportionally) |
 | `ACH` / `DCF`           | Bank / debit card transfer                          |
@@ -125,21 +138,22 @@ Activity Date, Process Date, Settle Date, Instrument, Description, Trans Code, Q
 | `GET`    | `/api/transactions`      | Trade history (`broker`, `start`, `end`, `trans_code`) |
 | `PUT`    | `/api/transactions/{id}` | Update a transaction                                   |
 | `DELETE` | `/api/transactions/{id}` | Delete a transaction                                   |
+| `DELETE` | `/api/transactions`      | Bulk delete by ID list                                 |
 
 ### Holdings & P&L
-| Method | Path                       | Description                    |
-|--------|----------------------------|--------------------------------|
-| `GET`  | `/api/report/consolidated` | Per-ticker holdings + P&L      |
-| `GET`  | `/api/report/pnl`          | Portfolio P&L summary          |
-| `GET`  | `/api/transfers`           | Transfers & fee transactions   |
-| `GET`  | `/api/report/transfers`    | Transfers summary              |
-| `GET`  | `/api/prices`              | Current prices (Yahoo Finance) |
+| Method | Path                       | Description                               |
+|--------|----------------------------|-------------------------------------------|
+| `GET`  | `/api/report/consolidated` | Per-ticker holdings + P&L                 |
+| `GET`  | `/api/report/pnl`          | Portfolio P&L summary                     |
+| `GET`  | `/api/transfers`           | Transfers & fee transactions              |
+| `GET`  | `/api/report/transfers`    | Transfers summary                         |
+| `GET`  | `/api/prices`              | Current prices (Yahoo Finance)            |
+| `GET`  | `/api/prices/change`       | 5-trading-day price change % per ticker   |
 
 ### Admin
 | Method | Path                        | Description            |
 |--------|-----------------------------|------------------------|
 | `POST` | `/api/settings/clear-cache` | Invalidate Redis cache |
-| `POST` | `/admin/clear-cache`        | Alias for above        |
 
 All list endpoints accept optional `start` / `end` date params (`YYYY-MM-DD`).
 
@@ -152,10 +166,12 @@ stocks/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI app + CORS
-│   │   ├── models.py            # SQLAlchemy models
-│   │   ├── schemas.py           # Pydantic schemas
 │   │   ├── database.py          # DB connection
 │   │   ├── cache.py             # Redis helpers
+│   │   ├── models/
+│   │   │   ├── orm.py           # SQLAlchemy models
+│   │   │   ├── schemas.py       # Pydantic schemas
+│   │   │   └── trans_codes.py   # Transaction code enums + sets
 │   │   ├── parsers/
 │   │   │   ├── robinhood.py     # CSV parser
 │   │   │   └── robinhood_pdf.py # PDF parser (OpenFIGI CUSIP lookup)
@@ -165,14 +181,14 @@ stocks/
 │   │       ├── holdings.py      # Holdings report
 │   │       ├── pnl.py           # P&L report (FIFO)
 │   │       ├── transfers.py     # Transfers & fees
-│   │       ├── prices.py        # Live price fetch
+│   │       ├── prices.py        # Live price fetch + 5-day change
 │   │       └── settings.py      # Cache management
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_robinhood_csv.py   # 36 tests — CSV parser
 │       ├── test_robinhood_pdf.py   # 55 tests — PDF parser
 │       ├── test_pnl.py             # 21 tests — FIFO P&L
-│       ├── test_prices.py          #  7 tests — price fetcher
+│       ├── test_prices.py          # 14 tests — price fetcher + 5-day change
 │       ├── test_upload.py          # 12 tests — upload endpoint
 │       └── test_api_endpoints.py   # 57 tests — all routers
 ├── frontend/
@@ -205,30 +221,17 @@ cd backend
 
 pytest --cov=app --cov-report=html   # Coverage report (open htmlcov/index.html)
 pytest --no-cov -v                    # Quick run
-pytest tests/test_pnl.py -v          # Single file
+pytest tests/test_prices.py -v       # Single file
 ```
 
-Coverage requirement: **≥ 85%** (current: **90.88%**)
+Coverage requirement: **≥ 85%**
 
 ### Linting & Formatting
 
+Pre-commit hooks run automatically on `git commit` (black, isort, flake8, bandit). Install once with:
+
 ```bash
-make lint       # flake8 check
-make format     # black + isort
-make pre-commit # Install git pre-commit hooks
-```
-
-Pre-commit hooks require `pre-commit install` to activate. Without it, hooks are skipped even if `.pre-commit-config.yaml` exists.
-
-### Makefile targets
-
-```
-make install    install Python deps
-make test       run tests
-make coverage   coverage report
-make lint       check style
-make format     auto-format
-make clean      remove artifacts
+pre-commit install
 ```
 
 ---

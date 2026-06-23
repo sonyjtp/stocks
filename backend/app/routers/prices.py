@@ -66,3 +66,50 @@ def get_current_prices(tickers: str = Query(...)):
         logger.warning("No valid prices fetched, not caching to prevent bad data")
 
     return prices
+
+
+@router.get("/prices/change")
+def get_price_changes(tickers: str = Query(...)):
+    """Get 5-trading-day price change % for multiple tickers. Caches for 5 minutes."""
+    cache_key = f"price_change:{tickers}"
+    cached = get_cached(cache_key)
+    if cached:
+        return cached
+
+    ticker_list = [t.strip().upper() for t in tickers.split(",")]
+    changes = {}
+
+    try:
+        data = yf.download(ticker_list, period="5d", interval="1d", progress=False)
+
+        if len(ticker_list) == 1:
+            closes = data["Close"].dropna()
+            if len(closes) >= 2:
+                changes[ticker_list[0]] = float(
+                    (closes.iloc[-1] - closes.iloc[0]) / closes.iloc[0] * 100
+                )
+            else:
+                changes[ticker_list[0]] = None
+        else:
+            for ticker in ticker_list:
+                try:
+                    closes = data["Close"][ticker].dropna()
+                    if len(closes) >= 2:
+                        changes[ticker] = float(
+                            (closes.iloc[-1] - closes.iloc[0]) / closes.iloc[0] * 100
+                        )
+                    else:
+                        changes[ticker] = None
+                except Exception as e:
+                    logger.warning(f"Could not get price change for {ticker}: {e}")
+                    changes[ticker] = None
+    except Exception as e:
+        logger.error(f"Error fetching price changes: {e}", exc_info=True)
+        changes = {t: None for t in ticker_list}
+
+    successful = sum(1 for v in changes.values() if v is not None)
+    logger.info(f"Price change fetch: {successful}/{len(ticker_list)} successful")
+    if successful > 0:
+        set_cached(cache_key, changes, ttl=300)
+
+    return changes
