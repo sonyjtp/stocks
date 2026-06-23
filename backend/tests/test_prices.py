@@ -134,6 +134,15 @@ def test_get_price_changes_multiple_tickers():
             assert result["MSFT"] == pytest.approx(_EXPECTED_MSFT_CHANGE)
 
 
+def test_get_price_changes_single_ticker_new_yfinance_format():
+    """Newer yfinance returns a DataFrame column even for single-ticker downloads."""
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.download") as mock_download:
+            mock_download.return_value = _single_ticker_df_new_format("AAPL", 154.0)
+            result = get_price_changes(tickers="AAPL")
+            assert result["AAPL"] == pytest.approx(_EXPECTED_SINGLE_CHANGE)
+
+
 def test_get_price_changes_handles_download_exception():
     with patch("app.routers.prices.get_cached", return_value=None):
         with patch("app.routers.prices.yf.download") as mock_download:
