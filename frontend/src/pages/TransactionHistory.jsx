@@ -67,11 +67,12 @@ export default function TransactionHistory() {
   const perfState = location.state?.perfState || null
   const fromHoldings = location.state?.fromHoldings || false
   const holdingsState = location.state?.holdingsState || null
+  const fromStock = location.state?.fromStock || null
 
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [ticker, setTicker] = useState(location.state?.ticker || '')
-  const [tickerExact, setTickerExact] = useState(!!(location.state?.fromPerformance || location.state?.fromHoldings))
+  const [tickerExact, setTickerExact] = useState(!!(location.state?.fromPerformance || location.state?.fromHoldings || location.state?.fromStock))
   const [transCode, setTransCode] = useState('')
   const [sortBy, setSortBy] = useState('activity_date')
   const [sortOrder, setSortOrder] = useState('desc')
@@ -456,6 +457,19 @@ export default function TransactionHistory() {
           }}
         >
           ← Back to Current Holdings
+        </button>
+      )}
+      {fromStock && (
+        <button
+          onClick={() => navigate(`/stock/${fromStock}`)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+            marginBottom: '1rem', padding: '0.4rem 1rem',
+            background: 'transparent', border: `1px solid ${theme.border}`,
+            borderRadius: '6px', cursor: 'pointer', color: theme.text, fontSize: '0.9rem',
+          }}
+        >
+          ← Back to {fromStock}
         </button>
       )}
 

@@ -1,4 +1,5 @@
 import { useState, useContext } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar,
@@ -13,6 +14,7 @@ const PIE_COLORS = ['#3498db', '#9b59b6', '#27ae60', '#f39c12', '#e67e22', '#1ab
 
 export default function Dashboard() {
   const { theme } = useContext(ThemeContext)
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('overview')
   const [signalSort, setSignalSort] = useState({ take_profit: 'desc', stop_loss: 'asc', rally: 'desc' })
   const [pnlLimit, setPnlLimit] = useState(5)
@@ -212,7 +214,10 @@ export default function Dashboard() {
                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                             padding: '0.5rem 0.75rem', borderBottom: `1px solid ${theme.border}`,
                           }}>
-                            <span style={{ fontWeight: 'bold', color: theme.text, fontSize: '0.88rem' }}>{s.ticker}</span>
+                            <span
+                              onClick={() => navigate(`/stock/${s.ticker}`)}
+                              style={{ fontWeight: 'bold', color: theme.colors.primary, fontSize: '0.88rem', cursor: 'pointer', textDecoration: 'underline' }}
+                            >{s.ticker}</span>
                             <span style={{ fontSize: '0.85rem', color, fontWeight: 600 }}>
                               {s.pct >= 0 ? '+' : ''}{s.pct.toFixed(1)}%
                             </span>
@@ -399,7 +404,10 @@ export default function Dashboard() {
                   <div key={ticker} style={{ background: theme.bgSecondary, borderRadius: '8px', boxShadow: theme.shadow, overflow: 'hidden' }}>
                     {/* Ticker header */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.25rem', borderBottom: `1px solid ${theme.border}` }}>
-                      <span style={{ fontWeight: 'bold', fontSize: '1.05rem', color: theme.text }}>{ticker}</span>
+                      <span
+                        onClick={() => navigate(`/stock/${ticker}`)}
+                        style={{ fontWeight: 'bold', fontSize: '1.05rem', color: theme.colors.primary, cursor: 'pointer', textDecoration: 'underline' }}
+                      >{ticker}</span>
                       {tickerSignals.map(s => {
                         const sigMeta = {
                           take_profit: { label: 'Take Profit', color: theme.colors.success, icon: '🎯' },

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
 from .logger import get_logger
-from .routers import holdings, pnl, prices, settings, transactions, transfers, upload
+from .routers import analyst, holdings, pnl, prices, settings, transactions, transfers, upload
 
 # Load environment variables from .env.local (development) or .env (production)
 env_path = Path(__file__).parent.parent.parent / ".env.local"
@@ -58,6 +58,7 @@ app.include_router(holdings.router)
 app.include_router(pnl.router)
 app.include_router(transfers.router)
 app.include_router(prices.router)
+app.include_router(analyst.router)
 app.include_router(settings.router)
 
 

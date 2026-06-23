@@ -19,7 +19,8 @@ A personal stock portfolio dashboard for tracking trades, P&L, holdings, and tra
 |--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Dashboard**            | Overview tab: summary cards, signals panel, portfolio allocation. Analytics tab: realized P&L chart, monthly buy activity, cash flow, volatility. P&L tab: date-filtered breakdown. News tab: recent headlines for high-volatility tickers |
 | **Transaction History**  | All trades (Buy/Sell/CDIV/CONV/SPL). Filter by date, ticker, type. Add/edit/delete rows. Export to Excel                                                                                                                                   |
-| **Current Holdings**     | Live prices via Yahoo Finance. FIFO cost basis, unrealized P&L per ticker                                                                                                                                                                  |
+| **Current Holdings**     | Live prices via Yahoo Finance. FIFO cost basis, unrealized P&L per ticker. Click any ticker to open its detail page                                                                                                                        |
+| **Stock Detail**         | Per-ticker page: position summary, analyst consensus (ratings + price target), active signals, recent news, link to trade history                                                                                                           |
 | **All-Time Performance** | Per-ticker: shares bought/sold/held, realized P&L, dividends, cost basis                                                                                                                                                                   |
 | **P&L Summary**          | Realized vs unrealized breakdown. Sold + held + dividends − fees = net P&L                                                                                                                                                                 |
 | **Transfers & Fees**     | ACH, debit card (DCF), interest (INT/MINT/SLIP), Gold fees (GOLD), foreign tax (DTAX). Export to Excel                                                                                                                                     |
@@ -161,6 +162,7 @@ Activity Date, Process Date, Settle Date, Instrument, Description, Trans Code, Q
 | `GET`  | `/api/prices`              | Current prices (Yahoo Finance)            |
 | `GET`  | `/api/prices/change`       | 5-trading-day price change % per ticker   |
 | `GET`  | `/api/news`                | Recent headlines for specified tickers    |
+| `GET`  | `/api/analyst`             | Analyst ratings + price targets           |
 
 ### Admin
 | Method | Path                        | Description            |
@@ -194,6 +196,7 @@ stocks/
 │   │       ├── pnl.py           # P&L report (FIFO)
 │   │       ├── transfers.py     # Transfers & fees
 │   │       ├── prices.py        # Live price fetch, 5-day change, news
+│       ├── analyst.py       # Analyst consensus + price targets
 │   │       └── settings.py      # Cache management
 │   └── tests/
 │       ├── conftest.py
@@ -201,6 +204,7 @@ stocks/
 │       ├── test_robinhood_pdf.py   # 55 tests — PDF parser
 │       ├── test_pnl.py             # 27 tests — FIFO P&L + interest
 │       ├── test_prices.py          # 21 tests — price fetcher, 5-day change, news
+│       ├── test_analyst.py         # 9 tests — analyst ratings + price targets
 │       ├── test_upload.py          # 12 tests — upload endpoint
 │       └── test_api_endpoints.py   # 57 tests — all routers
 ├── frontend/
@@ -210,6 +214,7 @@ stocks/
 │       │   └── ThemeContext.jsx
 │       └── pages/
 │           ├── Dashboard.jsx
+│           ├── StockDetail.jsx
 │           ├── TransactionHistory.jsx
 │           ├── CurrentHoldings.jsx
 │           ├── AllTimePerformance.jsx

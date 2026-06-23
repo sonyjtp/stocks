@@ -154,9 +154,7 @@ export default function CurrentHoldings() {
                     >
                       <td style={{ padding: '1rem', color: theme.text }}>
                         <span
-                          onClick={() => navigate('/', {
-                            state: { fromHoldings: true, ticker: h.ticker, holdingsState: { filterTicker, sortBy, sortOrder } },
-                          })}
+                          onClick={() => navigate(`/stock/${h.ticker}`)}
                           style={{ fontWeight: 'bold', cursor: 'pointer', color: theme.colors.primary, textDecoration: 'underline' }}
                         >
                           {h.ticker}

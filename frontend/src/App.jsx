@@ -10,6 +10,7 @@ import Transfers from './pages/Transfers'
 import Upload from './pages/Upload'
 import UploadHistory from './pages/UploadHistory'
 import Settings from './pages/Settings'
+import StockDetail from './pages/StockDetail'
 import './App.css'
 
 const queryClient = new QueryClient()
@@ -107,6 +108,7 @@ function AppContent() {
             <Route path="/upload" element={<Upload />} />
             <Route path="/upload-history" element={<UploadHistory />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/stock/:ticker" element={<StockDetail />} />
           </Routes>
         </main>
       </div>

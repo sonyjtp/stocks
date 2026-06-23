@@ -165,9 +165,7 @@ export default function AllTimePerformance() {
                     >
                       <td style={{ padding: '1rem', color: theme.text }}>
                         <span
-                          onClick={() => navigate('/', {
-                            state: { fromPerformance: true, ticker: r.ticker, perfState: { filterTicker, sortBy, sortOrder } },
-                          })}
+                          onClick={() => navigate(`/stock/${r.ticker}`)}
                           style={{ fontWeight: 'bold', cursor: 'pointer', color: theme.colors.primary, textDecoration: 'underline' }}
                         >
                           {r.ticker}
