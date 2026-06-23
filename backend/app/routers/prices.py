@@ -37,19 +37,19 @@ def get_current_prices(tickers: str = Query(...)):
         # Fetch all tickers at once for efficiency
         data = yf.download(ticker_list, period="1d", progress=False)
 
-        if len(ticker_list) == 1:
-            # Single ticker: get the last close price
-            close_price = data["Close"].iloc[-1] if len(data) > 0 else None
-            prices[ticker_list[0]] = float(close_price) if close_price is not None else None
-        else:
-            # Multiple tickers: iterate through each
-            for ticker in ticker_list:
-                try:
-                    close_price = data["Close"][ticker].iloc[-1]
-                    prices[ticker] = float(close_price) if not pd.isna(close_price) else None
-                except Exception as e:
-                    logger.warning(f"Could not get price for {ticker}: {e}")
-                    prices[ticker] = None
+        close_col = data["Close"]
+        for ticker in ticker_list:
+            try:
+                col = close_col[ticker] if isinstance(close_col, pd.DataFrame) else close_col
+                close_price = col.iloc[-1] if len(col) > 0 else None
+                prices[ticker] = (
+                    float(close_price)
+                    if close_price is not None and not pd.isna(close_price)
+                    else None
+                )
+            except Exception as e:
+                logger.warning(f"Could not get price for {ticker}: {e}")
+                prices[ticker] = None
     except Exception as e:
         logger.error(f"Error fetching prices: {e}", exc_info=True)
         prices = {t: None for t in ticker_list}
@@ -82,27 +82,20 @@ def get_price_changes(tickers: str = Query(...)):
     try:
         data = yf.download(ticker_list, period="5d", interval="1d", progress=False)
 
-        if len(ticker_list) == 1:
-            closes = data["Close"].dropna()
-            if len(closes) >= 2:
-                changes[ticker_list[0]] = float(
-                    (closes.iloc[-1] - closes.iloc[0]) / closes.iloc[0] * 100
-                )
-            else:
-                changes[ticker_list[0]] = None
-        else:
-            for ticker in ticker_list:
-                try:
-                    closes = data["Close"][ticker].dropna()
-                    if len(closes) >= 2:
-                        changes[ticker] = float(
-                            (closes.iloc[-1] - closes.iloc[0]) / closes.iloc[0] * 100
-                        )
-                    else:
-                        changes[ticker] = None
-                except Exception as e:
-                    logger.warning(f"Could not get price change for {ticker}: {e}")
+        close_col = data["Close"]
+        for ticker in ticker_list:
+            try:
+                col = close_col[ticker] if isinstance(close_col, pd.DataFrame) else close_col
+                closes = col.dropna()
+                if len(closes) >= 2:
+                    changes[ticker] = float(
+                        (closes.iloc[-1] - closes.iloc[0]) / closes.iloc[0] * 100
+                    )
+                else:
                     changes[ticker] = None
+            except Exception as e:
+                logger.warning(f"Could not get price change for {ticker}: {e}")
+                changes[ticker] = None
     except Exception as e:
         logger.error(f"Error fetching price changes: {e}", exc_info=True)
         changes = {t: None for t in ticker_list}

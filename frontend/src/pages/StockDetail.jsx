@@ -21,7 +21,7 @@ export default function StockDetail() {
     },
   })
 
-  const { data: prices = {} } = useQuery({
+  const { data: prices = {}, isLoading: priceLoading } = useQuery({
     queryKey: ['price', upper],
     queryFn: async () => {
       const res = await fetch(`${API_BASE}/prices?tickers=${upper}`)
@@ -122,9 +122,9 @@ export default function StockDetail() {
           ← Back
         </button>
         <h1 style={{ margin: 0, fontSize: '1.75rem', color: theme.colors.primary }}>{upper}</h1>
-        {currentPrice != null && (
-          <span style={{ fontSize: '1.4rem', color: theme.text, fontWeight: 600 }}>{fmt(currentPrice)}</span>
-        )}
+        <span style={{ fontSize: '1.4rem', color: priceLoading ? theme.textSecondary : theme.text, fontWeight: 600 }}>
+          {priceLoading ? '…' : currentPrice != null ? fmt(currentPrice) : '—'}
+        </span>
         {priceChange5d != null && (
           <span style={{ fontSize: '0.95rem', fontWeight: 600, color: priceChange5d >= 0 ? theme.colors.success : theme.colors.danger }}>
             {fmtPct(priceChange5d)} (5d)
@@ -138,16 +138,29 @@ export default function StockDetail() {
           <Card theme={theme} title="Your Position">
             <InfoRow theme={theme} label="Shares Held" value={sharesHeld.toLocaleString('en-US', { maximumFractionDigits: 8 })} />
             <InfoRow theme={theme} label="Avg Cost" value={fmt(avgCost)} />
+            <InfoRow
+              theme={theme}
+              label="Current Price"
+              value={priceLoading ? '…' : currentPrice != null ? fmt(currentPrice) : '—'}
+            />
             <InfoRow theme={theme} label="Cost Basis" value={fmt(costBasis)} />
-            {currentValue != null && <InfoRow theme={theme} label="Current Value" value={fmt(currentValue)} />}
-            {unrealizedPnL != null && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.6rem', marginTop: '0.25rem', borderTop: `1px solid ${theme.border}` }}>
-                <span style={{ color: theme.textSecondary, fontSize: '0.9rem' }}>Unrealized P&L</span>
+            <InfoRow
+              theme={theme}
+              label="Current Value"
+              value={priceLoading ? '…' : currentValue != null ? fmt(currentValue) : '—'}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.6rem', marginTop: '0.25rem', borderTop: `1px solid ${theme.border}` }}>
+              <span style={{ color: theme.textSecondary, fontSize: '0.9rem' }}>Unrealized P&L</span>
+              {priceLoading ? (
+                <span style={{ color: theme.textSecondary }}>…</span>
+              ) : unrealizedPnL != null ? (
                 <span style={{ fontWeight: 700, color: unrealizedPnL >= 0 ? theme.colors.success : theme.colors.danger }}>
                   {fmt(unrealizedPnL)} ({fmtPct(unrealizedPct)})
                 </span>
-              </div>
-            )}
+              ) : (
+                <span style={{ color: theme.textSecondary }}>—</span>
+              )}
+            </div>
           </Card>
         )}
 

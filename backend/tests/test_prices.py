@@ -7,9 +7,20 @@ from app.routers.prices import get_current_prices, get_price_changes, get_ticker
 
 
 def _single_ticker_df(price=154.0):
-    """yfinance returns a simple Close Series for a single ticker."""
+    """yfinance older-style: single ticker returns a simple Close Series column."""
     dates = pd.date_range("2026-01-01", periods=5)
     return pd.DataFrame({"Close": [150.0, 151.0, 152.0, 153.0, price]}, index=dates)
+
+
+def _single_ticker_df_new_format(ticker="AAPL", price=154.0):
+    """yfinance newer-style (>=0.2.38): single ticker still returns MultiIndex columns."""
+    dates = pd.date_range("2026-01-01", periods=5)
+    data = pd.DataFrame(
+        {("Close", ticker): [150.0, 151.0, 152.0, 153.0, price]},
+        index=dates,
+    )
+    data.columns = pd.MultiIndex.from_tuples(data.columns)
+    return data
 
 
 def _multi_ticker_df():
@@ -76,6 +87,15 @@ def test_get_current_prices_no_valid_prices_not_cached():
                 mock_download.side_effect = Exception("fail")
                 get_current_prices(tickers="AAPL")
                 mock_set.assert_not_called()
+
+
+def test_get_current_prices_single_ticker_new_yfinance_format():
+    """Newer yfinance returns a DataFrame column even for single-ticker downloads."""
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.download") as mock_download:
+            mock_download.return_value = _single_ticker_df_new_format("AAPL", 154.0)
+            result = get_current_prices(tickers="AAPL")
+            assert result["AAPL"] == pytest.approx(154.0)
 
 
 def test_get_current_prices_strips_whitespace():
