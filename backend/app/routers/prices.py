@@ -121,6 +121,90 @@ def get_price_changes(tickers: str = Query(...)):
     return changes
 
 
+@router.get("/prices/history")
+def get_price_history(ticker: str = Query(...), period: str = Query("1mo")):
+    """Get daily close history for a single ticker. Caches for 1 hour."""
+    ticker = ticker.strip().upper()
+    logger.debug(f"→ get_price_history(ticker={ticker!r}, period={period!r})")
+    cache_key = f"history:{ticker}:{period}"
+    cached = get_cached(cache_key)
+    if cached:
+        logger.debug(f"← get_price_history: cache hit ({len(cached)} points)")
+        return cached
+
+    PERIOD_CONFIG = {
+        "1d": {
+            "yf_period": "1d",
+            "interval": "5m",
+            "ttl": 300,
+            "fmt": lambda ts: ts.strftime("%H:%M"),
+        },
+        "1w": {
+            "yf_period": "5d",
+            "interval": "1d",
+            "ttl": 1800,
+            "fmt": lambda ts: ts.strftime("%a"),
+        },
+        "1mo": {
+            "yf_period": "1mo",
+            "interval": "1d",
+            "ttl": 3600,
+            "fmt": lambda ts: ts.strftime("%y-%m-%d"),
+        },
+        "3mo": {
+            "yf_period": "3mo",
+            "interval": "1d",
+            "ttl": 3600,
+            "fmt": lambda ts: ts.strftime("%y-%m-%d"),
+        },
+        "6mo": {
+            "yf_period": "6mo",
+            "interval": "1d",
+            "ttl": 3600,
+            "fmt": lambda ts: ts.strftime("%y-%m-%d"),
+        },
+        "1y": {
+            "yf_period": "1y",
+            "interval": "1d",
+            "ttl": 3600,
+            "fmt": lambda ts: ts.strftime("%y-%m-%d"),
+        },
+        "2y": {
+            "yf_period": "2y",
+            "interval": "1d",
+            "ttl": 3600,
+            "fmt": lambda ts: ts.strftime("%y-%m-%d"),
+        },
+    }
+    cfg = PERIOD_CONFIG.get(period, PERIOD_CONFIG["1mo"])
+
+    try:
+        data = yf.download(
+            ticker, period=cfg["yf_period"], interval=cfg["interval"], progress=False
+        )
+        close_col = data["Close"]
+        col = close_col[ticker] if isinstance(close_col, pd.DataFrame) else close_col
+        result = [
+            {"date": cfg["fmt"](ts), "close": round(float(price), 4)}
+            for ts, price in col.items()
+            if not pd.isna(price)
+        ]
+    except Exception as e:
+        logger.warning(f"get_price_history: {ticker}: {e}")
+        result = []
+
+    if result:
+        set_cached(cache_key, result, ttl=cfg["ttl"])
+        logger.info(
+            f"get_price_history: {ticker} {period} — {len(result)} points"
+            f" — cached (TTL {cfg['ttl']}s)"
+        )
+    else:
+        logger.warning(f"get_price_history: no data for {ticker} ({period})")
+    logger.debug("← get_price_history: done")
+    return result
+
+
 @router.get("/news")
 def get_ticker_news(tickers: str = Query(...)):
     """Get recent news for high-volatility tickers. Caches for 30 minutes."""

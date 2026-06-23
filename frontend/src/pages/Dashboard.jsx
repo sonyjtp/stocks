@@ -1,5 +1,5 @@
 import { useState, useContext } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar,
@@ -15,7 +15,9 @@ const PIE_COLORS = ['#3498db', '#9b59b6', '#27ae60', '#f39c12', '#e67e22', '#1ab
 export default function Dashboard() {
   const { theme } = useContext(ThemeContext)
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') || 'overview'
+  const setActiveTab = (tab) => setSearchParams({ tab }, { replace: true })
   const [signalSort, setSignalSort] = useState({ take_profit: 'desc', stop_loss: 'asc', rally: 'desc' })
   const [pnlLimit, setPnlLimit] = useState(5)
   const [pnlStart, setPnlStart] = useState('')

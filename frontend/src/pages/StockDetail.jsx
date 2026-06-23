@@ -1,6 +1,7 @@
-import { useContext } from 'react'
+import { useContext, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { ThemeContext } from '../context/ThemeContext'
 import Spinner from '../components/Spinner'
 
@@ -11,6 +12,7 @@ export default function StockDetail() {
   const upper = ticker.toUpperCase()
   const navigate = useNavigate()
   const { theme } = useContext(ThemeContext)
+  const [historyPeriod, setHistoryPeriod] = useState('1d')
 
   const { data: consolidatedData, isLoading: holdLoading } = useQuery({
     queryKey: ['holdings-all'],
@@ -74,6 +76,16 @@ export default function StockDetail() {
       if (!res.ok) return []
       return res.json()
     },
+  })
+
+  const { data: history = [], isLoading: historyLoading } = useQuery({
+    queryKey: ['history', upper, historyPeriod],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/prices/history?ticker=${upper}&period=${historyPeriod}`)
+      if (!res.ok) return []
+      return res.json()
+    },
+    staleTime: 60 * 60 * 1000,
   })
 
   if (holdLoading) return <Spinner />
@@ -155,7 +167,102 @@ export default function StockDetail() {
             {sector}
           </span>
         )}
+        <a
+          href={`https://finance.yahoo.com/quote/${upper}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            marginLeft: 'auto', fontSize: '0.8rem', fontWeight: 600,
+            color: theme.colors.primary, textDecoration: 'none',
+            padding: '0.3rem 0.7rem', border: `1px solid ${theme.colors.primary}`,
+            borderRadius: '4px', whiteSpace: 'nowrap',
+          }}
+        >
+          Yahoo Finance ↗
+        </a>
       </div>
+
+      {/* Sparkline */}
+      {(history.length > 0 || historyLoading) && (() => {
+        const periodChange = history.length >= 2
+          ? (history[history.length - 1].close - history[0].close) / history[0].close * 100
+          : null
+        const isUp = periodChange == null || periodChange >= 0
+        const chartColor = isUp ? theme.colors.success : theme.colors.danger
+        const PERIODS = ['1d', '1w', '1mo', '3mo', '6mo', '1y', '2y']
+        return (
+          <Card theme={theme} title={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Price History</span>
+              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                {PERIODS.map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setHistoryPeriod(p)}
+                    style={{
+                      padding: '0.15rem 0.5rem', fontSize: '0.72rem', fontWeight: 600,
+                      border: `1px solid ${historyPeriod === p ? chartColor : theme.border}`,
+                      borderRadius: '4px', cursor: 'pointer',
+                      background: historyPeriod === p ? `${chartColor}20` : 'transparent',
+                      color: historyPeriod === p ? chartColor : theme.textSecondary,
+                    }}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          }>
+            {historyLoading ? (
+              <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spinner />
+              </div>
+            ) : (
+              <>
+                {periodChange != null && (
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: chartColor, marginBottom: '0.5rem' }}>
+                    {periodChange >= 0 ? '+' : ''}{periodChange.toFixed(2)}% this period
+                  </div>
+                )}
+                <ResponsiveContainer width="100%" height={140}>
+                  <AreaChart data={history} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10, fill: theme.textSecondary }}
+                      tickLine={false}
+                      axisLine={false}
+                      interval="preserveStartEnd"
+                      tickFormatter={historyPeriod === '1y' || historyPeriod === '2y'
+                        ? (v) => v.slice(0, 5)
+                        : undefined}
+                    />
+                    <YAxis
+                      domain={['auto', 'auto']}
+                      tick={{ fontSize: 10, fill: theme.textSecondary }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={v => `$${v.toFixed(0)}`}
+                      width={45}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: theme.bgSecondary, border: `1px solid ${theme.border}`, borderRadius: '6px', fontSize: '0.8rem' }}
+                      labelStyle={{ color: theme.textSecondary }}
+                      formatter={v => [`$${v.toFixed(2)}`, 'Close']}
+                    />
+                    <Area type="monotone" dataKey="close" stroke={chartColor} strokeWidth={1.5} fill="url(#sparkGrad)" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </>
+            )}
+          </Card>
+        )
+      })()}
 
       {/* Position + Analyst row */}
       <div style={{ display: 'grid', gridTemplateColumns: holding && totalRatings > 0 ? '1fr 1fr' : '1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
