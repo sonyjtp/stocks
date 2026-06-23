@@ -1,9 +1,9 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
-from app.routers.prices import get_current_prices, get_price_changes
+from app.routers.prices import get_current_prices, get_price_changes, get_ticker_news
 
 
 def _single_ticker_df(price=154.0):
@@ -156,3 +156,104 @@ def test_get_price_changes_insufficient_data_returns_none():
             mock_download.return_value = single_row
             result = get_price_changes(tickers="AAPL")
             assert result["AAPL"] is None
+
+
+# ---------------------------------------------------------------------------
+# get_ticker_news
+# ---------------------------------------------------------------------------
+
+
+def _news_item(
+    title="Test Article",
+    publisher="Reuters",
+    url="https://example.com/article",
+    pub_date="2026-06-22T12:00:00Z",
+    summary="A test summary",
+):
+    return {
+        "content": {
+            "title": title,
+            "summary": summary,
+            "pubDate": pub_date,
+            "canonicalUrl": {"url": url},
+            "provider": {"displayName": publisher},
+        }
+    }
+
+
+def _mock_ticker(news_items):
+    mock = MagicMock()
+    mock.news = news_items
+    return mock
+
+
+def test_get_ticker_news_returns_parsed_fields():
+    item = _news_item(
+        title="AAPL surges",
+        publisher="Reuters",
+        url="https://example.com/1",
+        pub_date="2026-06-22T10:00:00Z",
+    )
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.Ticker", return_value=_mock_ticker([item])):
+            result = get_ticker_news(tickers="AAPL")
+            assert len(result["AAPL"]) == 1
+            article = result["AAPL"][0]
+            assert article["title"] == "AAPL surges"
+            assert article["publisher"] == "Reuters"
+            assert article["link"] == "https://example.com/1"
+            assert article["published_at"] == "2026-06-22T10:00:00Z"
+
+
+def test_get_ticker_news_limits_to_three_articles():
+    items = [_news_item(title=f"Article {i}") for i in range(5)]
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.Ticker", return_value=_mock_ticker(items)):
+            result = get_ticker_news(tickers="AAPL")
+            assert len(result["AAPL"]) == 3
+
+
+def test_get_ticker_news_multiple_tickers():
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.Ticker") as mock_ticker_cls:
+            mock_ticker_cls.side_effect = lambda t: _mock_ticker([_news_item(title=f"{t} news")])
+            result = get_ticker_news(tickers="AAPL,MSFT")
+            assert "AAPL" in result and "MSFT" in result
+            assert result["AAPL"][0]["title"] == "AAPL news"
+            assert result["MSFT"][0]["title"] == "MSFT news"
+
+
+def test_get_ticker_news_handles_exception_per_ticker():
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.Ticker", side_effect=Exception("API down")):
+            result = get_ticker_news(tickers="AAPL")
+            assert result["AAPL"] == []
+
+
+def test_get_ticker_news_uses_cache():
+    cached = {
+        "AAPL": [
+            {"title": "Cached", "publisher": "X", "link": "", "published_at": "", "summary": ""}
+        ]
+    }
+    with patch("app.routers.prices.get_cached", return_value=cached):
+        result = get_ticker_news(tickers="AAPL")
+        assert result["AAPL"][0]["title"] == "Cached"
+
+
+def test_get_ticker_news_populates_cache_with_30min_ttl():
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.Ticker", return_value=_mock_ticker([_news_item()])):
+            with patch("app.routers.prices.set_cached") as mock_set:
+                get_ticker_news(tickers="AAPL")
+                mock_set.assert_called_once()
+                _, _, kwargs = mock_set.mock_calls[0]
+                assert mock_set.call_args[1].get("ttl") == 1800 or mock_set.call_args[0][2] == 1800
+
+
+def test_get_ticker_news_no_articles_not_cached():
+    with patch("app.routers.prices.get_cached", return_value=None):
+        with patch("app.routers.prices.yf.Ticker", return_value=_mock_ticker([])):
+            with patch("app.routers.prices.set_cached") as mock_set:
+                get_ticker_news(tickers="AAPL")
+                mock_set.assert_not_called()

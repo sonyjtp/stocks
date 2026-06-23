@@ -93,6 +93,20 @@ export default function Dashboard() {
     enabled: heldTickers.length > 0,
   })
 
+  const signals = computeSignals(holdings, prices, priceChanges)
+  const signalTickers = [...new Set(signals.map(s => s.ticker))]
+
+  const { data: newsData = {}, isLoading: newsLoading } = useQuery({
+    queryKey: ['news', signalTickers.join(',')],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/news?tickers=${signalTickers.join(',')}`)
+      if (!res.ok) return {}
+      return res.json()
+    },
+    enabled: activeTab === 'news' && signalTickers.length > 0,
+    staleTime: 30 * 60 * 1000,
+  })
+
   if (txLoading || holdLoading || pnlLoading || achLoading) return <Spinner />
 
   const metrics = pnlData ? {
@@ -106,7 +120,6 @@ export default function Dashboard() {
     }).length / holdings.length) * 100 : 0
   } : { totalInvested: 0, currentValue: 0, totalGainLoss: 0, winRate: 0 }
 
-  const signals = computeSignals(holdings, prices, priceChanges)
   const cashFlowData = generateCashFlowData(achTransactions)
   const volatilityData = calculateVolatility(transactions)
   const portfolioAllocation = getPortfolioAllocation(holdings, prices)
@@ -120,7 +133,7 @@ export default function Dashboard() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: `2px solid ${theme.border}` }}>
-        {['overview', 'analytics', 'pnl'].map(tab => (
+        {['overview', 'analytics', 'pnl', 'news'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -141,6 +154,7 @@ export default function Dashboard() {
             {tab === 'overview' && '📈 Overview'}
             {tab === 'analytics' && '📊 Analytics'}
             {tab === 'pnl' && '💰 P&L'}
+            {tab === 'news' && '📰 News'}
           </button>
         ))}
       </div>
@@ -366,7 +380,71 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Tab 4: P&L */}
+      {/* Tab 4: News */}
+      {activeTab === 'news' && (
+        <div>
+          {signalTickers.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '3rem', color: theme.textSecondary }}>
+              <p style={{ fontSize: '1.1rem' }}>No high-volatility tickers detected.</p>
+              <p style={{ fontSize: '0.9rem' }}>News is shown only for tickers with an active Take Profit, Stop Loss, or Rally signal.</p>
+            </div>
+          ) : newsLoading ? (
+            <Spinner />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {signalTickers.map(ticker => {
+                const tickerSignals = signals.filter(s => s.ticker === ticker)
+                const articles = newsData[ticker] || []
+                return (
+                  <div key={ticker} style={{ background: theme.bgSecondary, borderRadius: '8px', boxShadow: theme.shadow, overflow: 'hidden' }}>
+                    {/* Ticker header */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.25rem', borderBottom: `1px solid ${theme.border}` }}>
+                      <span style={{ fontWeight: 'bold', fontSize: '1.05rem', color: theme.text }}>{ticker}</span>
+                      {tickerSignals.map(s => {
+                        const sigMeta = {
+                          take_profit: { label: 'Take Profit', color: theme.colors.success, icon: '🎯' },
+                          stop_loss:   { label: 'Stop Loss',   color: theme.colors.danger,  icon: '🛑' },
+                          rally:       { label: '5-Day Rally', color: theme.colors.warning, icon: '📈' },
+                        }[s.type]
+                        return (
+                          <span key={s.type} style={{
+                            fontSize: '0.75rem', fontWeight: 600,
+                            padding: '0.2rem 0.55rem', borderRadius: '999px',
+                            background: `${sigMeta.color}22`, color: sigMeta.color,
+                            border: `1px solid ${sigMeta.color}55`,
+                          }}>
+                            {sigMeta.icon} {sigMeta.label} {s.pct >= 0 ? '+' : ''}{s.pct.toFixed(1)}%
+                          </span>
+                        )
+                      })}
+                    </div>
+                    {/* Articles */}
+                    {articles.length === 0 ? (
+                      <p style={{ padding: '1rem 1.25rem', color: theme.textSecondary, fontSize: '0.9rem', margin: 0 }}>No recent news found.</p>
+                    ) : articles.map((article, i) => (
+                      <div key={i} style={{ padding: '0.9rem 1.25rem', borderBottom: i < articles.length - 1 ? `1px solid ${theme.border}` : 'none' }}>
+                        <a
+                          href={article.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: theme.colors.primary, fontWeight: 600, fontSize: '0.92rem', textDecoration: 'none', lineHeight: 1.4, display: 'block', marginBottom: '0.3rem' }}
+                        >
+                          {article.title}
+                        </a>
+                        <span style={{ fontSize: '0.8rem', color: theme.textSecondary }}>
+                          {article.publisher}{article.published_at ? ` · ${timeAgo(article.published_at)}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 5: P&L */}
       {activeTab === 'pnl' && (
         <div>
           {/* Date filter */}
@@ -594,6 +672,13 @@ function computeSignals(holdings, prices, priceChanges) {
   })
 
   return signals
+}
+
+function timeAgo(isoString) {
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 function calculateVolatility(transactions) {

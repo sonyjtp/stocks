@@ -15,17 +15,17 @@ A personal stock portfolio dashboard for tracking trades, P&L, holdings, and tra
 
 ## Features
 
-| Page                     | Description                                                                                                                                                                        |
-|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Dashboard**            | Overview tab: summary cards, signals panel, portfolio allocation. Analytics tab: realized P&L chart, monthly buy activity, cash flow, volatility. P&L tab: date-filtered breakdown |
-| **Transaction History**  | All trades (Buy/Sell/CDIV/CONV/SPL). Filter by date, ticker, type. Add/edit/delete rows. Export to Excel                                                                           |
-| **Current Holdings**     | Live prices via Yahoo Finance. FIFO cost basis, unrealized P&L per ticker                                                                                                          |
-| **All-Time Performance** | Per-ticker: shares bought/sold/held, realized P&L, dividends, cost basis                                                                                                           |
-| **P&L Summary**          | Realized vs unrealized breakdown. Sold + held + dividends − fees = net P&L                                                                                                         |
-| **Transfers & Fees**     | ACH, debit card (DCF), interest (INT/MINT/SLIP), Gold fees (GOLD), foreign tax (DTAX). Export to Excel                                                                             |
-| **Upload**               | Upload Robinhood CSV or PDF. Smart duplicate detection with per-row selection                                                                                                      |
-| **Upload History**       | Audit log of all uploads. Rollback individual uploads and their transactions                                                                                                       |
-| **Settings**             | Signal thresholds (take profit / stop loss / 5-day rally). Clear Redis cache. Dark/light theme toggle                                                                              |
+| Page                     | Description                                                                                                                                                                                                                                |
+|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Dashboard**            | Overview tab: summary cards, signals panel, portfolio allocation. Analytics tab: realized P&L chart, monthly buy activity, cash flow, volatility. P&L tab: date-filtered breakdown. News tab: recent headlines for high-volatility tickers |
+| **Transaction History**  | All trades (Buy/Sell/CDIV/CONV/SPL). Filter by date, ticker, type. Add/edit/delete rows. Export to Excel                                                                                                                                   |
+| **Current Holdings**     | Live prices via Yahoo Finance. FIFO cost basis, unrealized P&L per ticker                                                                                                                                                                  |
+| **All-Time Performance** | Per-ticker: shares bought/sold/held, realized P&L, dividends, cost basis                                                                                                                                                                   |
+| **P&L Summary**          | Realized vs unrealized breakdown. Sold + held + dividends − fees = net P&L                                                                                                                                                                 |
+| **Transfers & Fees**     | ACH, debit card (DCF), interest (INT/MINT/SLIP), Gold fees (GOLD), foreign tax (DTAX). Export to Excel                                                                                                                                     |
+| **Upload**               | Upload Robinhood CSV or PDF. Smart duplicate detection with per-row selection                                                                                                                                                              |
+| **Upload History**       | Audit log of all uploads. Rollback individual uploads and their transactions                                                                                                                                                               |
+| **Settings**             | Signal thresholds (take profit / stop loss / 5-day rally). Clear Redis cache. Dark/light theme toggle                                                                                                                                      |
 
 **Core capabilities:**
 - FIFO cost basis with broker transfers (CONV = $0 basis) and stock splits (SPL/SPR)
@@ -46,6 +46,17 @@ The Dashboard Overview tab shows a **Signals** panel with three columns — Take
 | 📈 5-Day Rally | Price up ≥ threshold over the last 5 trading days | 5%                |
 
 Thresholds are configurable in **Settings → Signal Thresholds** and saved to browser local storage.
+
+---
+
+## News
+
+The **📰 News** tab on the Dashboard shows recent headlines for tickers that have an active signal. News is only fetched for tickers where something notable is happening price-wise — no signals, no news.
+
+- Up to 3 articles per ticker, sourced from Yahoo Finance via yfinance
+- Each ticker card shows its active signal badges (with %) alongside the headlines
+- Articles link directly to the source
+- Cached in Redis for **30 minutes** to avoid hammering the API
 
 ---
 
@@ -149,6 +160,7 @@ Activity Date, Process Date, Settle Date, Instrument, Description, Trans Code, Q
 | `GET`  | `/api/report/transfers`    | Transfers summary                         |
 | `GET`  | `/api/prices`              | Current prices (Yahoo Finance)            |
 | `GET`  | `/api/prices/change`       | 5-trading-day price change % per ticker   |
+| `GET`  | `/api/news`                | Recent headlines for specified tickers    |
 
 ### Admin
 | Method | Path                        | Description            |
@@ -181,14 +193,14 @@ stocks/
 │   │       ├── holdings.py      # Holdings report
 │   │       ├── pnl.py           # P&L report (FIFO)
 │   │       ├── transfers.py     # Transfers & fees
-│   │       ├── prices.py        # Live price fetch + 5-day change
+│   │       ├── prices.py        # Live price fetch, 5-day change, news
 │   │       └── settings.py      # Cache management
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_robinhood_csv.py   # 36 tests — CSV parser
 │       ├── test_robinhood_pdf.py   # 55 tests — PDF parser
-│       ├── test_pnl.py             # 21 tests — FIFO P&L
-│       ├── test_prices.py          # 14 tests — price fetcher + 5-day change
+│       ├── test_pnl.py             # 27 tests — FIFO P&L + interest
+│       ├── test_prices.py          # 21 tests — price fetcher, 5-day change, news
 │       ├── test_upload.py          # 12 tests — upload endpoint
 │       └── test_api_endpoints.py   # 57 tests — all routers
 ├── frontend/

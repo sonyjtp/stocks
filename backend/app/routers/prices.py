@@ -113,3 +113,42 @@ def get_price_changes(tickers: str = Query(...)):
         set_cached(cache_key, changes, ttl=300)
 
     return changes
+
+
+@router.get("/news")
+def get_ticker_news(tickers: str = Query(...)):
+    """Get recent news for high-volatility tickers. Caches for 30 minutes."""
+    cache_key = f"news:{tickers}"
+    cached = get_cached(cache_key)
+    if cached:
+        return cached
+
+    ticker_list = [t.strip().upper() for t in tickers.split(",")]
+    result = {}
+
+    for ticker in ticker_list:
+        try:
+            raw_news = yf.Ticker(ticker).news or []
+            items = []
+            for item in raw_news[:3]:
+                c = item.get("content", {})
+                pub_date = c.get("pubDate", "")
+                items.append(
+                    {
+                        "title": c.get("title", ""),
+                        "summary": c.get("summary", ""),
+                        "publisher": c.get("provider", {}).get("displayName", ""),
+                        "link": c.get("canonicalUrl", {}).get("url", ""),
+                        "published_at": pub_date,
+                    }
+                )
+            result[ticker] = items
+        except Exception as e:
+            logger.warning(f"Could not fetch news for {ticker}: {e}")
+            result[ticker] = []
+
+    if any(result.values()):
+        set_cached(cache_key, result, ttl=1800)
+    total = sum(len(v) for v in result.values())
+    logger.info(f"News fetch: {total} articles for {len(ticker_list)} tickers")
+    return result
