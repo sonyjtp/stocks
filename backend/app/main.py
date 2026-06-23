@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
-from .logger import get_logger
+from .logger import configure_uvicorn_logging, get_logger
 from .routers import (
     analyst,
     holdings,
@@ -28,6 +28,7 @@ if env_path.exists():
     load_dotenv(env_path)
 
 logger = get_logger(__name__)
+configure_uvicorn_logging()
 
 # Create database tables
 Base.metadata.create_all(bind=engine)

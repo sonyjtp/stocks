@@ -11,10 +11,13 @@ router = APIRouter(prefix="/api", tags=["analyst"])
 @router.get("/analyst")
 def get_analyst_data(tickers: str = Query(...)):
     """Get analyst consensus ratings and price targets. Caches for 1 hour."""
+    logger.debug(f"→ get_analyst_data(tickers={tickers!r})")
     cache_key = f"analyst:{tickers}"
     cached = get_cached(cache_key)
     if cached:
+        logger.debug(f"← get_analyst_data: cache hit ({len(cached)} tickers)")
         return cached
+    logger.debug("get_analyst_data: cache miss — fetching from yfinance")
 
     ticker_list = [t.strip().upper() for t in tickers.split(",")]
     result = {}
@@ -26,6 +29,11 @@ def get_analyst_data(tickers: str = Query(...)):
             ratings = {}
             rec = t.recommendations
             if rec is not None and not rec.empty:
+                period = rec.iloc[0].get("period", "?")
+                logger.debug(
+                    f"get_analyst_data: {ticker}: {len(rec)} recommendation rows,"
+                    f" using most recent (period={period!r})"
+                )
                 latest = rec.iloc[0]
                 ratings = {
                     "strong_buy": int(latest.get("strongBuy", 0)),
@@ -48,12 +56,19 @@ def get_analyst_data(tickers: str = Query(...)):
 
             result[ticker] = {"ratings": ratings, "price_target": price_target}
         except Exception as e:
-            logger.warning(f"Could not fetch analyst data for {ticker}: {e}")
+            logger.warning(f"get_analyst_data: {ticker}: {e}")
             result[ticker] = {"ratings": {}, "price_target": {}}
 
     has_data = any(r["ratings"] or r["price_target"] for r in result.values())
+    rated = sum(1 for r in result.values() if r["ratings"])
+    with_targets = sum(1 for r in result.values() if r["price_target"])
     if has_data:
         set_cached(cache_key, result, ttl=3600)
-    rated = sum(1 for r in result.values() if r["ratings"])
-    logger.info(f"Analyst fetch: {rated}/{len(ticker_list)} tickers with ratings")
+        logger.info(
+            f"get_analyst_data: {rated}/{len(ticker_list)} with ratings,"
+            f" {with_targets} with price targets — cached (TTL 1h)"
+        )
+    else:
+        logger.warning(f"get_analyst_data: no analyst data for any of {ticker_list}, not caching")
+    logger.debug("← get_analyst_data: done")
     return result

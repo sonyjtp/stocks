@@ -20,16 +20,21 @@ def get_current_prices(tickers: str = Query(...)):
     Returns:
         Dictionary with ticker as key and current price as value
     """
+    logger.debug(f"→ get_current_prices(tickers={tickers!r})")
     cache_key = f"prices:{tickers}"
     cached = get_cached(cache_key)
     if cached:
-        logger.debug(f"Returning cached prices for {len(tickers.split(','))} tickers")
+        logger.debug(f"← get_current_prices: cache hit ({len(cached)} tickers)")
         return cached
 
     ticker_list = [t.strip().upper() for t in tickers.split(",")]
     logger.debug(
-        f"Fetching prices for {len(ticker_list)} tickers: {', '.join(ticker_list[:5])}"
-        + ("..." if len(ticker_list) > 5 else "")
+        f"get_current_prices: cache miss — downloading {len(ticker_list)} tickers via yfinance"
+        + (
+            f": {', '.join(ticker_list[:8])}{'...' if len(ticker_list) > 8 else ''}"
+            if len(ticker_list) <= 8
+            else ""
+        )
     )
     prices = {}
 
@@ -48,22 +53,24 @@ def get_current_prices(tickers: str = Query(...)):
                     else None
                 )
             except Exception as e:
-                logger.warning(f"Could not get price for {ticker}: {e}")
+                logger.warning(f"get_current_prices: {ticker}: {e}")
                 prices[ticker] = None
     except Exception as e:
-        logger.error(f"Error fetching prices: {e}", exc_info=True)
+        logger.error(f"get_current_prices: yfinance download failed: {e}", exc_info=True)
         prices = {t: None for t in ticker_list}
 
     successful = sum(1 for p in prices.values() if p is not None)
-    logger.info(f"Price fetch complete: {successful}/{len(ticker_list)} successful")
+    failed = [t for t, p in prices.items() if p is None]
+    logger.info(
+        f"get_current_prices: {successful}/{len(ticker_list)} prices fetched"
+        + (f" — no data for: {', '.join(failed)}" if failed else "")
+    )
 
-    # Only cache if we got at least some valid prices (prevent caching all-None data)
     if successful > 0:
         set_cached(cache_key, prices, ttl=300)
-        label = ticker_list[0] if len(ticker_list) == 1 else f"{len(ticker_list)} tickers"
-        logger.debug(f"Cached prices for {label}")
+        logger.debug(f"← get_current_prices: cached {successful} prices (TTL 5 min)")
     else:
-        logger.warning("No valid prices fetched, not caching to prevent bad data")
+        logger.warning("get_current_prices: all tickers returned null — not caching")
 
     return prices
 
@@ -71,10 +78,13 @@ def get_current_prices(tickers: str = Query(...)):
 @router.get("/prices/change")
 def get_price_changes(tickers: str = Query(...)):
     """Get 5-trading-day price change % for multiple tickers. Caches for 5 minutes."""
+    logger.debug(f"→ get_price_changes(tickers={tickers!r})")
     cache_key = f"price_change:{tickers}"
     cached = get_cached(cache_key)
     if cached:
+        logger.debug(f"← get_price_changes: cache hit ({len(cached)} tickers)")
         return cached
+    logger.debug("get_price_changes: cache miss — downloading 5d history")
 
     ticker_list = [t.strip().upper() for t in tickers.split(",")]
     changes = {}
@@ -94,16 +104,19 @@ def get_price_changes(tickers: str = Query(...)):
                 else:
                     changes[ticker] = None
             except Exception as e:
-                logger.warning(f"Could not get price change for {ticker}: {e}")
+                logger.warning(f"get_price_changes: {ticker}: {e}")
                 changes[ticker] = None
     except Exception as e:
-        logger.error(f"Error fetching price changes: {e}", exc_info=True)
+        logger.error(f"get_price_changes: yfinance download failed: {e}", exc_info=True)
         changes = {t: None for t in ticker_list}
 
     successful = sum(1 for v in changes.values() if v is not None)
-    logger.info(f"Price change fetch: {successful}/{len(ticker_list)} successful")
+    logger.info(f"get_price_changes: {successful}/{len(ticker_list)} 5d changes computed")
     if successful > 0:
         set_cached(cache_key, changes, ttl=300)
+        logger.debug("← get_price_changes: cached (TTL 5 min)")
+    else:
+        logger.warning("get_price_changes: no valid changes — not caching")
 
     return changes
 
@@ -111,10 +124,14 @@ def get_price_changes(tickers: str = Query(...)):
 @router.get("/news")
 def get_ticker_news(tickers: str = Query(...)):
     """Get recent news for high-volatility tickers. Caches for 30 minutes."""
+    logger.debug(f"→ get_ticker_news(tickers={tickers!r})")
     cache_key = f"news:{tickers}"
     cached = get_cached(cache_key)
     if cached:
+        total_cached = sum(len(v) for v in cached.values())
+        logger.debug(f"← get_ticker_news: cache hit ({total_cached} articles)")
         return cached
+    logger.debug("get_ticker_news: cache miss — fetching from yfinance")
 
     ticker_list = [t.strip().upper() for t in tickers.split(",")]
     result = {}
@@ -137,11 +154,17 @@ def get_ticker_news(tickers: str = Query(...)):
                 )
             result[ticker] = items
         except Exception as e:
-            logger.warning(f"Could not fetch news for {ticker}: {e}")
+            logger.warning(f"get_ticker_news: {ticker}: {e}")
             result[ticker] = []
 
+    total = sum(len(v) for v in result.values())
     if any(result.values()):
         set_cached(cache_key, result, ttl=1800)
-    total = sum(len(v) for v in result.values())
-    logger.info(f"News fetch: {total} articles for {len(ticker_list)} tickers")
+        logger.info(
+            f"get_ticker_news: {total} articles for {len(ticker_list)} tickers"
+            " — cached (TTL 30 min)"
+        )
+    else:
+        logger.warning(f"get_ticker_news: no articles found for any of {ticker_list}, not caching")
+    logger.debug("← get_ticker_news: done")
     return result

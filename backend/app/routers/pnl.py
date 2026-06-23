@@ -30,13 +30,16 @@ def get_pnl_summary(
     db: Session = Depends(get_db),
 ):
     """Get P&L summary with gross and net figures."""
+    logger.debug(f"→ get_pnl_summary(broker={broker!r}, start={start}, end={end})")
     cache_key = f"pnl:{broker}:{start}:{end}"
     cached = get_cached(cache_key)
     if cached:
-        logger.debug(f"Returning cached P&L summary for {broker} ({start} to {end})")
+        logger.debug(f"← get_pnl_summary: cache hit for broker={broker!r} ({start} to {end})")
         return cached
 
-    logger.debug(f"Generating P&L summary for {broker} ({start} to {end})")
+    logger.debug(
+        f"get_pnl_summary: cache miss — computing for broker={broker!r} ({start} to {end})"
+    )
 
     query = db.query(Transaction).filter(Transaction.broker == broker)
 
@@ -96,6 +99,7 @@ def get_pnl_summary(
         )
 
         if not all_acquisitions and not sells_all:
+            logger.debug(f"get_pnl_summary: {ticker}: no acquisitions or sells, skipping")
             continue
 
         # Build buy lots with cost per share for FIFO matching
@@ -233,25 +237,30 @@ def get_pnl_summary(
             tickers_str = ",".join([h["ticker"] for h in holdings])
             ticker_list = [t.strip().upper() for t in tickers_str.split(",")]
             try:
+                logger.debug(
+                    f"get_pnl_summary: downloading prices for {len(ticker_list)} held tickers"
+                )
                 data = yf.download(ticker_list, period="1d", progress=False)
-
-                if len(ticker_list) == 1:
-                    close_price = data["Close"].iloc[-1] if len(data) > 0 else None
-                    prices = {
-                        ticker_list[0]: float(close_price) if close_price is not None else None
-                    }
-                else:
-                    prices = {}
-                    for ticker in ticker_list:
-                        try:
-                            close_price = data["Close"][ticker].iloc[-1]
-                            prices[ticker] = (
-                                float(close_price) if not pd.isna(close_price) else None
-                            )
-                        except Exception:
-                            prices[ticker] = None
+                close_col = data["Close"]
+                prices = {}
+                for t in ticker_list:
+                    try:
+                        col = close_col[t] if isinstance(close_col, pd.DataFrame) else close_col
+                        close_price = col.iloc[-1] if len(col) > 0 else None
+                        prices[t] = (
+                            float(close_price)
+                            if close_price is not None and not pd.isna(close_price)
+                            else None
+                        )
+                    except Exception:
+                        prices[t] = None
+                fetched = sum(1 for p in prices.values() if p is not None)
+                logger.debug(
+                    f"get_pnl_summary: {fetched}/{len(ticker_list)} prices fetched"
+                    " for unrealized calc"
+                )
             except Exception as e:
-                logger.warning(f"Could not fetch prices for unrealized P&L: {e}")
+                logger.warning(f"get_pnl_summary: price download failed: {e}")
                 prices = {t: None for t in ticker_list}
 
             for holding in holdings:

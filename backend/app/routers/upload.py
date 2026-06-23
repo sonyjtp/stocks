@@ -48,11 +48,14 @@ class UploadDuplicatesRequest(BaseModel):
 @router.post("/validate")
 async def validate_upload(file: UploadFile = File(...)):
     """Parse a file and return validation errors without saving anything."""
+    logger.debug(f"→ validate_upload(filename={file.filename!r})")
     try:
         content = await file.read()
         file_ext = file.filename.lower().split(".")[-1]
+        logger.debug(f"validate_upload: {len(content)} bytes read, type={file_ext!r}")
 
         if file_ext == "pdf":
+            logger.debug("validate_upload: parsing as PDF")
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
@@ -61,13 +64,16 @@ async def validate_upload(file: UploadFile = File(...)):
             finally:
                 os.unlink(tmp_path)
         elif file_ext == "csv":
+            logger.debug("validate_upload: parsing as CSV")
             csv_text = content.decode("utf-8-sig")  # utf-8-sig strips BOM if present
             transactions = parse_robinhood_csv(csv_text)
         else:
+            logger.warning(f"validate_upload: unsupported file type {file_ext!r}")
             from fastapi import HTTPException
 
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
 
+        logger.debug(f"validate_upload: parsed {len(transactions)} row(s)")
         if len(transactions) == 0 and len(content) > 0:
             return {
                 "filename": file.filename,
@@ -140,6 +146,11 @@ async def validate_upload(file: UploadFile = File(...)):
                     }
                 )
 
+        logger.info(
+            f"validate_upload: {file.filename!r} — {len(transactions)} rows,"
+            f" {len(errors)} validation error(s)"
+        )
+        logger.debug("← validate_upload: done")
         return {
             "filename": file.filename,
             "total_rows": len(transactions),
@@ -148,6 +159,7 @@ async def validate_upload(file: UploadFile = File(...)):
         }
 
     except Exception as e:
+        logger.error(f"validate_upload: unexpected error for {file.filename!r}: {e}", exc_info=True)
         from fastapi import HTTPException
 
         raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
@@ -156,7 +168,8 @@ async def validate_upload(file: UploadFile = File(...)):
 @router.post("/upload", response_model=UploadResponse)
 async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Upload and parse Robinhood CSV or PDF file."""
-    logger.info(f"Starting upload for file: {file.filename}")
+    logger.debug(f"→ upload_csv(filename={file.filename!r})")
+    logger.info(f"upload_csv: starting upload for {file.filename!r}")
 
     log = UploadLog(
         filename=file.filename,
@@ -172,8 +185,10 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
     try:
         content = await file.read()
         file_ext = file.filename.lower().split(".")[-1]
+        logger.debug(f"upload_csv: {len(content)} bytes read, type={file_ext!r}")
 
         if file_ext == "pdf":
+            logger.debug("upload_csv: parsing as PDF")
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
@@ -182,13 +197,17 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
             finally:
                 os.unlink(tmp_path)
         elif file_ext == "csv":
+            logger.debug("upload_csv: parsing as CSV")
             csv_text = content.decode("utf-8-sig")  # utf-8-sig strips BOM if present
             transactions = parse_robinhood_csv(csv_text)
         else:
+            logger.warning(f"upload_csv: unsupported file type {file_ext!r}")
             raise ValueError(f"Unsupported file type: {file_ext}. Please upload a CSV or PDF file.")
 
+        logger.debug(f"upload_csv: parsed {len(transactions)} row(s)")
         log.rows_parsed = len(transactions)
 
+        logger.debug(f"upload_csv: deduplicating {len(transactions)} row(s) within file")
         # Deduplicate within file
         seen = set()
         duplicates = []
@@ -208,6 +227,10 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                 seen.add(trans_key)
                 unique_transactions.append(trans)
 
+        logger.debug(
+            f"upload_csv: {len(unique_transactions)} unique,"
+            f" {len(duplicates)} CSV duplicate(s) within file"
+        )
         # Insert unique, check DB duplicates
         inserted = 0
         db_duplicates = []
@@ -295,9 +318,10 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
 
         invalidate_cache()
         logger.info(
-            f"Upload complete: {inserted} inserted, {len(duplicates)} CSV dups, "
-            f"{len(db_duplicates)} DB dups, {len(failed_rows)} failed"
+            f"upload_csv: {file.filename!r} — {inserted} inserted, {len(duplicates)} CSV dups, "
+            f"{len(db_duplicates)} DB dups, {len(failed_rows)} failed — cache invalidated"
         )
+        logger.debug("← upload_csv: done")
 
         _exclude = {"broker"}
         return {
@@ -325,7 +349,10 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
 @router.post("/upload-duplicates", response_model=UploadResponse)
 async def upload_duplicates(request: UploadDuplicatesRequest, db: Session = Depends(get_db)):
     """Upload previously identified duplicate transactions."""
-    logger.info(f"Uploading {len(request.transactions)} duplicate transactions")
+    logger.debug(f"→ upload_duplicates(count={len(request.transactions)})")
+    logger.info(
+        f"upload_duplicates: uploading {len(request.transactions)} duplicate transaction(s)"
+    )
 
     try:
         inserted = 0
@@ -380,7 +407,10 @@ async def upload_duplicates(request: UploadDuplicatesRequest, db: Session = Depe
                 )
 
         db.commit()
-        logger.info(f"Successfully inserted {inserted} duplicate transactions")
+        logger.info(
+            f"upload_duplicates: inserted {inserted} duplicate transaction(s) — cache invalidated"
+        )
+        logger.debug("← upload_duplicates: done")
         invalidate_cache()
 
         return {
@@ -390,7 +420,7 @@ async def upload_duplicates(request: UploadDuplicatesRequest, db: Session = Depe
         }
 
     except Exception as e:
-        logger.error(f"Error uploading duplicates: {str(e)}", exc_info=True)
+        logger.error(f"upload_duplicates: failed with {e}", exc_info=True)
         from fastapi import HTTPException
 
         raise HTTPException(status_code=400, detail=f"Error uploading duplicates: {str(e)}")

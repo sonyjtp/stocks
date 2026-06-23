@@ -15,14 +15,19 @@ router = APIRouter(prefix="/api", tags=["settings"])
 
 @router.post("/settings/clear-cache")
 def clear_cache():
+    logger.debug("→ clear_cache()")
     invalidate_cache()
-    logger.info("Cache cleared via settings")
+    logger.info("clear_cache: Redis cache cleared via settings endpoint")
+    logger.debug("← clear_cache: done")
     return {"message": "Cache cleared successfully"}
 
 
 @router.get("/upload-logs")
 def get_upload_logs(db: Session = Depends(get_db)):
+    logger.debug("→ get_upload_logs()")
     logs = db.query(UploadLog).order_by(desc(UploadLog.upload_time)).all()
+    logger.info(f"get_upload_logs: returning {len(logs)} upload log(s)")
+    logger.debug("← get_upload_logs: done")
     return [
         {
             "id": log.id,
@@ -52,7 +57,9 @@ def get_upload_logs(db: Session = Depends(get_db)):
 
 @router.get("/upload-logs/{log_id}/errors")
 def get_upload_errors(log_id: int, db: Session = Depends(get_db)):
+    logger.debug(f"→ get_upload_errors(log_id={log_id})")
     errors = db.query(UploadError).filter(UploadError.upload_log_id == log_id).all()
+    logger.debug(f"← get_upload_errors: {len(errors)} error row(s) for log {log_id}")
     return [
         {
             "id": e.id,
@@ -70,7 +77,9 @@ def get_upload_errors(log_id: int, db: Session = Depends(get_db)):
 
 @router.get("/upload-logs/{log_id}/duplicates")
 def get_upload_duplicates(log_id: int, db: Session = Depends(get_db)):
+    logger.debug(f"→ get_upload_duplicates(log_id={log_id})")
     dups = db.query(UploadDuplicate).filter(UploadDuplicate.upload_log_id == log_id).all()
+    logger.debug(f"← get_upload_duplicates: {len(dups)} duplicate row(s) for log {log_id}")
     return [
         {
             "dup_type": d.dup_type,
@@ -89,10 +98,14 @@ def get_upload_duplicates(log_id: int, db: Session = Depends(get_db)):
 @router.delete("/upload-logs/{log_id}/transactions")
 def rollback_upload_transactions(log_id: int, db: Session = Depends(get_db)):
     """Delete all transactions inserted by this upload from the database."""
+    logger.debug(f"→ rollback_upload_transactions(log_id={log_id})")
     from ..models import Transaction
 
     links = db.query(UploadTransaction).filter(UploadTransaction.upload_log_id == log_id).all()
     tx_ids = [lnk.transaction_id for lnk in links]
+    logger.debug(
+        f"rollback_upload_transactions: found {len(tx_ids)} transaction(s) linked to log {log_id}"
+    )
     deleted = (
         db.query(Transaction).filter(Transaction.id.in_(tx_ids)).delete(synchronize_session=False)
     )
@@ -101,25 +114,37 @@ def rollback_upload_transactions(log_id: int, db: Session = Depends(get_db)):
     )
     db.commit()
     invalidate_cache()
+    logger.info(
+        f"rollback_upload_transactions: deleted {deleted} transaction(s)"
+        f" for log {log_id} — cache invalidated"
+    )
+    logger.debug("← rollback_upload_transactions: done")
     return {"deleted_count": deleted}
 
 
 @router.delete("/upload-logs/{log_id}")
 def delete_upload_log(log_id: int, db: Session = Depends(get_db)):
+    logger.debug(f"→ delete_upload_log(log_id={log_id})")
     log = db.query(UploadLog).filter(UploadLog.id == log_id).first()
     if not log:
+        logger.warning(f"delete_upload_log: log {log_id} not found")
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail="Log not found")
     db.delete(log)
     db.commit()
+    logger.info(f"delete_upload_log: log {log_id} deleted")
+    logger.debug("← delete_upload_log: done")
     return {"message": f"Log {log_id} deleted"}
 
 
 @router.delete("/upload-logs")
 def clear_all_upload_logs(db: Session = Depends(get_db)):
+    logger.debug("→ clear_all_upload_logs()")
     db.query(UploadError).delete()
     db.query(UploadDuplicate).delete()
     db.query(UploadLog).delete()
     db.commit()
+    logger.info("clear_all_upload_logs: all upload logs, errors, and duplicates cleared")
+    logger.debug("← clear_all_upload_logs: done")
     return {"message": "All upload logs cleared"}

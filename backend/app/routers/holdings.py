@@ -16,13 +16,16 @@ router = APIRouter(prefix="/api", tags=["holdings"])
 @router.get("/report/consolidated", response_model=dict)
 def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get_db)):
     """Get consolidated per-ticker report with holdings and P&L."""
+    logger.debug(f"→ get_consolidated_report(broker={broker!r})")
     cache_key = f"consolidated:{broker}"
     cached = get_cached(cache_key)
     if cached:
-        logger.debug(f"Returning cached consolidated report for {broker}")
+        logger.debug(
+            f"← get_consolidated_report: cache hit ({len(cached.get('holdings', []))} holdings)"
+        )
         return cached
 
-    logger.debug(f"Generating consolidated report for {broker}")
+    logger.debug(f"get_consolidated_report: cache miss — computing for broker={broker!r}")
 
     # Get all tickers traded
     tickers = (
@@ -36,6 +39,8 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
         .all()
     )
 
+    ticker_count = len(tickers)
+    logger.debug(f"get_consolidated_report: processing {ticker_count} distinct tickers")
     holdings_list = []
     report_items = []
 
@@ -198,20 +203,19 @@ def get_consolidated_report(broker: str = "robinhood", db: Session = Depends(get
                 }
             )
 
+    held_count = sum(1 for h in holdings_list if h["shares_held"] > 0)
     result = {"holdings": holdings_list, "report": report_items}
 
-    # Only cache if we have data (prevent caching empty results from errors)
     if holdings_list:
         set_cached(cache_key, result, ttl=CACHE_TTL_SHORT)
         logger.info(
-            f"Consolidated report: {len(holdings_list)} holdings, "
-            f"{len(report_items)} performance items - CACHED"
+            f"get_consolidated_report: {ticker_count} tickers → "
+            f"{held_count} currently held, {len(report_items)} all-time — cached"
         )
     else:
-        logger.warning("No holdings data generated, not caching to prevent bad data")
-        logger.info(
-            f"Consolidated report: {len(holdings_list)} holdings, "
-            f"{len(report_items)} performance items"
+        logger.warning(
+            f"get_consolidated_report: no holdings generated for broker={broker!r}, skipping cache"
         )
 
+    logger.debug("← get_consolidated_report: done")
     return result

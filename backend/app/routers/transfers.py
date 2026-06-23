@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..cache import CACHE_TTL_SHORT, get_cached, set_cached
 from ..database import get_db
+from ..logger import get_logger
 from ..models import (
     DEPOSIT_CODES,
     INTEREST_CODES,
@@ -18,6 +19,7 @@ from ..models import (
     TransfersSummary,
 )
 
+logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["transfers"])
 
 
@@ -29,10 +31,13 @@ def get_transfers(
     db: Session = Depends(get_db),
 ):
     """Get ACH, interest, and fee transactions."""
+    logger.debug(f"→ get_transfers(broker={broker!r}, start={start}, end={end})")
     cache_key = f"transfers:{broker}:{start}:{end}"
     cached = get_cached(cache_key)
     if cached:
+        logger.debug(f"← get_transfers: cache hit ({len(cached)} rows)")
         return cached
+    logger.debug("get_transfers: cache miss — querying database")
 
     query = db.query(Transaction).filter(
         Transaction.broker == broker,
@@ -45,6 +50,7 @@ def get_transfers(
         query = query.filter(Transaction.activity_date <= end)
 
     results = query.order_by(Transaction.activity_date.desc()).all()
+    logger.info(f"get_transfers: {len(results)} transfer rows for broker={broker!r}")
 
     set_cached(
         cache_key,
@@ -66,7 +72,7 @@ def get_transfers(
         ],
         ttl=CACHE_TTL_SHORT,
     )
-
+    logger.debug("← get_transfers: cached and returning")
     return results
 
 
@@ -78,10 +84,13 @@ def get_transfers_summary(
     db: Session = Depends(get_db),
 ):
     """Get transfers and fees summary."""
+    logger.debug(f"→ get_transfers_summary(broker={broker!r}, start={start}, end={end})")
     cache_key = f"transfers_summary:{broker}:{start}:{end}"
     cached = get_cached(cache_key)
     if cached:
+        logger.debug("← get_transfers_summary: cache hit")
         return cached
+    logger.debug("get_transfers_summary: cache miss — computing")
 
     # ACH / DCF deposits (positive amounts)
     ach_deposits = db.query(func.sum(Transaction.amount)).filter(
@@ -147,4 +156,8 @@ def get_transfers_summary(
     )
 
     set_cached(cache_key, result.model_dump(), ttl=CACHE_TTL_SHORT)
+    logger.info(
+        f"get_transfers_summary: deposits=${ach_deposits:.2f}, withdrawals=${ach_withdrawals:.2f}, "
+        f"interest=${interest:.2f}, fees=${fees:.2f} — cached"
+    )
     return result
